@@ -44,8 +44,7 @@ tree, so hooks and agents can treat it as a gate.
 ## Agent usage
 
 luau-lens is deliberately harness-agnostic. The CLI is the contract. Per-agent
-wiring (AGENTS.md snippet, Claude Code plugin, cursor rules) is built on top
-and planned as separate adapters.
+wiring (AGENTS.md snippet, Claude Code plugin, cursor rules) is built on top.
 
 Example AGENTS.md snippet for Codex:
 
@@ -56,6 +55,28 @@ Use `luau-lens check <path>` to type-check and lint Luau before declaring work
 complete. `luau-lens check` exits non-zero when errors exist. Run it on edited
 files and on the whole project before finishing a task.
 ```
+
+### Install into harnesses
+
+```bash
+luau-lens install-agent
+```
+
+This auto-detects installed harnesses and wires luau-lens in:
+
+- **Codex**: writes a `PostToolUse` hook into `~/.codex/hooks.json` (a managed
+  file, never touches your `config.toml`). After a Write/Edit of a `.luau`,
+  it runs `luau-lens check --json` on the edited file and injects the errors
+  into codex's context as advisory feedback. Clean writes are silent.
+- **Claude Code**: installs a skills-directory plugin at
+  `~/.claude/skills/luau-lens/`, auto-discovered on next session as
+  `luau-lens@skills-dir`. Same PostToolUse behavior via a bundled hook,
+  `additionalContext` fed back only on errors.
+- **Cursor / Pi**: the CLI works today from any harness that can run shell
+  commands; first-class adapters are planned.
+
+`install-agent` never edits your AGENTS.md, CLAUDE.md, or config files. It
+prints the recommended AGENTS.md snippet for you to add yourself.
 
 ## Audit
 

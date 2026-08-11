@@ -114,6 +114,7 @@ def _cmd_audit(args: argparse.Namespace) -> int:
 
 
 def _cmd_install_agent(args: argparse.Namespace) -> int:
+    from .adapters import claude as claude_adapter
     from .adapters import codex as codex_adapter
 
     results: list[str] = []
@@ -125,6 +126,18 @@ def _cmd_install_agent(args: argparse.Namespace) -> int:
         results.append(f"codex: {'installed' if hooks_updated else 'already installed'} (hook: {launcher})")
     except Exception as e:  # noqa: BLE001
         results.append(f"codex: FAILED ({e})")
+
+    # Claude Code adapter (plugin, skills-dir auto-discovery)
+    try:
+        claude_available = claude_adapter.claude_cli_available()
+        was_installed = claude_adapter.is_installed()
+        plugin_dir = claude_adapter.install_plugin()
+        state = "already installed" if was_installed else "installed"
+        results.append(f"claude-code: {state} (plugin: {plugin_dir})")
+        if not claude_available:
+            results.append("claude-code: note: `claude` CLI not found on PATH; plugin will load when Claude Code runs")
+    except Exception as e:  # noqa: BLE001
+        results.append(f"claude-code: FAILED ({e})")
 
     for line in results:
         print(line)
