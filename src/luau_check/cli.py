@@ -45,7 +45,7 @@ def _cmd_check(args: argparse.Namespace) -> int:
     if args.json:
         print(json.dumps(result, indent=2))
     elif summary.get("total", 0) == 0:
-        print("clean: no diagnostics")
+        pass  # silent on clean: exit 0, no output (the documented contract)
     else:
         for d in result.get("diagnostics", []):
             rel = d["file"]
