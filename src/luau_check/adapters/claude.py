@@ -77,13 +77,10 @@ LUAU_LENS="{luau_check_cmd}"
 run_check() {{
   if [[ "$LUAU_LENS" == *" -m "* ]]; then
     # split the generated "<python> -m luau_check.cli" string into argv tokens,
-    # save them, restore positional params, then call with the check args.
-    # Safe: the split string is generated and contains no user input.
-    local cmd1 cmd2 cmd3
-    set -- $LUAU_LENS
-    cmd1="$1"; cmd2="$2"; cmd3="$3"
-    shift 3
-    "$cmd1" "$cmd2" "$cmd3" "$@"
+    # run with the check args appended. Preserve "$@" (the check args).
+    local -a cmd
+    read -r -a cmd <<< "$LUAU_LENS"
+    "${{cmd[@]}}" "$@"
   else
     "$LUAU_LENS" "$@"
   fi

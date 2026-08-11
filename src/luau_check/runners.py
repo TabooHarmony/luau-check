@@ -91,11 +91,13 @@ def run_luau_lsp(filepath: str, project_root: str | None = None,
     cmd.append(filepath)
 
     stdout, stderr, exit_code = _run(cmd, timeout=60, cwd=cwd)
-    if exit_code == -1 and not stdout:
+    if (exit_code == -1 and not stdout) or (exit_code != 0 and not stdout.strip()):
+        # Missing binary (spawn error) OR tool ran but crashed with no output
+        # (corrupted download). Both are toolchain failures, never "clean".
         return [Diagnostic(
             file=filepath, line=1, column=1, end_line=None, end_column=None,
             code="InternalError", severity="error",
-            message=f"luau-lsp failed: {stderr}", source="luau-lsp",
+            message=f"luau-lsp failed (exit {exit_code}): {stderr.strip() or 'no output — toolchain likely broken'}", source="luau-lsp",
         )]
     return parse_luau_lsp_safe(stdout, stderr)
 
@@ -121,11 +123,11 @@ def run_selene(filepath: str, project_root: str | None = None,
     cmd.append(filepath)
 
     stdout, stderr, exit_code = _run(cmd, timeout=60, cwd=cwd)
-    if exit_code == -1 and not stdout:
+    if (exit_code == -1 and not stdout) or (exit_code != 0 and not stdout.strip()):
         return [Diagnostic(
             file=filepath, line=1, column=1, end_line=None, end_column=None,
             code="InternalError", severity="error",
-            message=f"selene failed: {stderr}", source="selene",
+            message=f"selene failed (exit {exit_code}): {stderr.strip() or 'no output — toolchain likely broken'}", source="selene",
         )]
     from .parsers import parse_selene
     return parse_selene(stdout)
@@ -184,6 +186,7 @@ def check_files(targets: list[str], cwd: str = ".") -> dict:
         abs_targets.append(os.path.abspath(p))
 
     files: list[str] = []
+    missing: list[str] = []
     for t in abs_targets:
         if os.path.isfile(t):
             files.append(t)
@@ -192,6 +195,27 @@ def check_files(targets: list[str], cwd: str = ".") -> dict:
                 for f in fs:
                     if f.endswith((".luau", ".lua")):
                         files.append(os.path.join(root, f))
+        else:
+            missing.append(t)
+
+    if missing:
+        # A nonexistent target is a hard error, never "clean"
+        return {
+            "diagnostics": [
+                {
+                    "file": t,
+                    "line": 0,
+                    "column": 0,
+                    "severity": "error",
+                    "source": "luau-check",
+                    "code": "NoSuchFile",
+                    "message": f"path does not exist: {t}",
+                }
+                for t in missing
+            ],
+            "summary": {"errors": len(missing), "warnings": 0, "total": len(missing)},
+            "note": "nonexistent target path(s)",
+        }
 
     if not files:
         return {"diagnostics": [], "summary": {"errors": 0, "warnings": 0, "total": 0},

@@ -47,7 +47,7 @@ RULES: list[dict] = [
         "name": "unauthorized-write",
         "severity": "warning",
         "pattern": re.compile(
-            r"(game|workspace)\.[A-Za-z0-9_.]+\.Value\s*=|DataStore|UpdateAsync|SetAsync",
+            r"(game|workspace)\.[A-Za-z0-9_.]+\.Value\s*=|:[A-Za-z]*SetAsync\s*\(|:[A-Za-z]*UpdateAsync\s*\(|:[A-Za-z]*RemoveAsync\s*\(",
             re.IGNORECASE,
         ),
         "message": "Write to game state or DataStore; ensure it is server-authorized and rate-limited.",
@@ -63,9 +63,9 @@ RULES: list[dict] = [
     },
     {
         "name": "missing-service",
-        "severity": "error",
+        "severity": "info",
         "pattern": re.compile(r"GetService\(\s*[\"']([A-Za-z]+)[\"']\s*\)"),
-        "message": "Service obtained; ensure it exists and is used in the correct context (server vs client).",
+        "message": "Service obtained; confirm it is used in the correct context (server vs client).",
     },
 ]
 

@@ -69,23 +69,23 @@ and it never edits your AGENTS.md, CLAUDE.md, or user config files.
 
 - **Codex**: `PostToolUse` hook in `~/.codex/hooks.json` (managed file).
   After a Write/Edit of a `.luau`, runs `luau-check check --json` on the file
-  and injects errors as advisory context. Verified live end-to-end.
+  and injects errors and warnings as advisory context. Live-verified.
 - **Claude Code**: skills-directory plugin at
   `~/.claude/skills/luau-check/`, auto-discovered as `luau-check@skills-dir`.
-  Bundled PostToolUse hook, `additionalContext` fed back only on errors.
-  Verified live end-to-end.
+  Bundled PostToolUse hook, `additionalContext` fed back on errors and
+  warnings. Live-verified.
 - **Cursor**: user-level `postToolUse` hook in `~/.cursor/hooks.json`
   (project level also works; the adapter uses user level). Same advisory
   JSON-over-stdio contract, same silence-on-clean. Contract verified; needs a
   real Cursor session to smoke (no headless Cursor exists).
 - **OpenCode**: TS plugin at `~/.config/opencode/plugin/luau-check.ts` using
   the `event` hook (file edits surface as `message.part.updated` tool parts).
-  One module covers opencode v1 and v2 (identical plugin API, verified against
-  both branches). Verified live in opencode 1.18.16.
+  One module targets opencode v1 and v2 (identical plugin API on both
+  branches). Smoke-tested once on 1.18.16; verify on your own opencode.
 - **Pi / Oh-My-Pi**: TS extension at `~/.omp/agent/extensions/luau-check.ts`.
   `tool_result` handler runs the check and patches the result content with the
   diagnostics (omp's `tool_result` has no context-injection channel; content
-  patching is the supported mechanism). Verified live in omp 17.2.12.
+  patching is the supported mechanism). Live-verified in omp 17.2.12.
 
 `install-agent` never edits your AGENTS.md, CLAUDE.md, or config files. It
 prints the recommended AGENTS.md snippet for you to add yourself.

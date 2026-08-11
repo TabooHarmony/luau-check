@@ -112,7 +112,7 @@ export async function luauCheck(event: any): Promise<void> {{
     // Non-zero exit => diagnostics. Surface them.
     const stderr = e?.stdout?.toString?.() ?? e?.stderr?.toString?.() ?? ""
     if (stderr.trim()) {{
-      console.log(`[luau-check] ${{stderr.trim().replace(/\n/g, " | ")}}`)
+      console.log(`[luau-check] ${{stderr.trim().replace(/\\n/g, " | ")}}`)
     }}
   }}
 }}
