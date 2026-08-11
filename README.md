@@ -1,14 +1,10 @@
 # luau-check
 
-Luau diagnostics for AI coding agents.
+Luau type checking and linting for AI coding agents.
 
-A single, dependency-free CLI that wraps [luau-lsp] (type checking),
-[selene] (linting), and [StyLua] (formatting) so agents get fast,
-deterministic feedback without spending an LLM turn.
-
-The v1 of this tool was an MCP server. v2 is a CLI. Agents call it through
-their own terminal: it is stateless, fast, print-silent-on-clean, and works in
-any harness that can run a shell command.
+A CLI that wraps [luau-lsp] (type checking), [selene] (linting), and
+[StyLua] (formatting). Run it on your Luau code and it reports errors and
+warnings without touching your files.
 
 ## Install
 
@@ -17,118 +13,60 @@ pip install luau-check
 # or: uv tool install luau-check
 ```
 
-First run downloads `luau-lsp`, `selene`, `stylua`, and the Roblox type
-definitions into `~/.luau-check/` automatically. No manual setup.
+First run downloads luau-lsp, selene, StyLua, and the Roblox type definitions
+into `~/.luau-check/`. Nothing else to configure.
 
-Not on PyPI yet? Until it is, install straight from GitHub:
+Until the package makes it to PyPI:
 
 ```bash
 pip install git+https://github.com/TabooHarmony/luau-check.git
 ```
 
-Then run checks, and `luau-check install-agent` to wire it into your agent.
-
-## Commands
+## Usage
 
 ```bash
 # type-check and lint files or a directory
-luau-check check src/ server.luau client.luau
+luau-check check src/
+
+# same, as JSON (for scripts and hooks)
 luau-check check src/ --json
 
 # format files in place
 luau-check format src/
 
-# write default selene.toml + .luaurc into a project
+# write default selene.toml and .luaurc into a project
 luau-check init
 
-# verify toolchain
+# verify the toolchain
 luau-check doctor
 
-# static security audit of Roblox Luau (heuristic, leads not verdicts)
+# static security scan (heuristic, leads not guarantees)
 luau-check audit src/
 ```
 
-`check` exits non-zero if any error is found, and prints nothing on a clean
-tree, so hooks and agents can treat it as a gate. `--warnings` makes it exit
-non-zero on warnings too.
+`check` prints nothing when the code is clean and exits non-zero when errors
+are found, so it works as a gate in scripts and agent workflows. Add
+`--warnings` to also fail on warnings.
 
-## Agent usage
+## Coding agents
 
-luau-check is deliberately harness-agnostic. The CLI is the contract. Per-agent
-wiring is built on top, and `luau-check install-agent` wires them all in one
-command.
-
-Add this to your project's AGENTS.md so agents also check via CLI:
-
-```md
-## Luau checks
-
-Use `luau-check check <path>` to type-check and lint Luau before declaring work
-complete. `luau-check check` exits non-zero when errors exist. Run it on edited
-files and on the whole project before finishing a task.
-```
-
-### Install into harnesses
+Any agent that can run a shell command can call `luau-check` directly. To
+have checks run automatically after each edit:
 
 ```bash
 luau-check install-agent
 ```
 
-This auto-detects installed harnesses and wires luau-check in. Every adapter
-shares one design: advisory only (never blocks), silent when a file is clean,
-and it never edits your AGENTS.md, CLAUDE.md, or user config files.
-
-- **Codex**: `PostToolUse` hook in `~/.codex/hooks.json` (managed file).
-  After a Write/Edit of a `.luau`, runs `luau-check check --json` on the file
-  and injects errors and warnings as advisory context. Live-verified.
-- **Claude Code**: skills-directory plugin at `~/.claude/skills/luau-check/`,
-  auto-discovered as `luau-check@skills-dir`. Bundled PostToolUse hook,
-  `additionalContext` fed back on errors and warnings. Live-verified.
-- **Cursor**: user-level `postToolUse` hook in `~/.cursor/hooks.json`
-  (project level also works; the adapter uses user level). Same advisory
-  JSON-over-stdio contract, same silence-on-clean. Contract verified; needs a
-  real Cursor session to smoke (no headless Cursor exists).
-- **OpenCode**: TS plugin at `~/.config/opencode/plugin/luau-check.ts` using
-  the `event` hook (file edits surface as `message.part.updated` tool parts).
-  One module targets opencode v1 and v2 (identical plugin API on both
-  branches). Smoke-tested once on 1.18.16; verify on your own opencode.
-- **Pi / Oh-My-Pi**: TS extension at `~/.omp/agent/extensions/luau-check.ts`.
-  `tool_result` handler runs the check and patches the result content with the
-  diagnostics (omp's `tool_result` has no context-injection channel; content
-  patching is the supported mechanism). Live-verified in omp 17.2.12.
-
-`install-agent` never edits your AGENTS.md, CLAUDE.md, or config files. It
-prints the recommended AGENTS.md snippet for you to add yourself.
-
-### Claude Code without an Anthropic subscription
-
-Claude Code can run against any Anthropic-Messages-compatible endpoint via
-`ANTHROPIC_BASE_URL` + `ANTHROPIC_AUTH_TOKEN`; no login required. If your
-LLM provider speaks the Messages API (e.g. many OpenAI-compatible proxies
-also expose `/v1/messages`), point it there:
-
-```bash
-# scripts/claude-charm.sh in this repo (Charm Hyper example)
-source scripts/claude-charm.sh && claude
-```
-
-Note: set `ANTHROPIC_BASE_URL` to the host root, not the `/v1` path. Claude
-Code appends `/v1/messages` itself, so `https://host/v1` becomes a double
-`/v1/v1` and fails.
-
-## Audit
-
-`luau-check audit` is a static heuristic scanner for the exploiter patterns
-that show up in AI-generated Roblox games: client-trusted remotes, missing
-server validation, over-broad DataStore writes. It returns leads for review,
-not security guarantees. Clean output means "no obvious pattern," not
-"secure."
+This adds hooks for the agents it finds installed: Codex, Claude Code,
+Cursor, OpenCode, and Pi. The hooks are advisory, so they never block work.
+`install-agent` only writes hook/extension files for those agents, never your
+project files.
 
 ## Configuration
 
-`check` walks up the directory tree and uses the nearest project's `.luaurc`,
-`selene.toml`, and `.stylua.toml` if present, falling back to bundled
-defaults. It never modifies your files.
+`check` finds the nearest `.luaurc`, `selene.toml`, and `.stylua.toml` by
+walking up from the checked paths, and falls back to built-in defaults. It
+never modifies your files.
 
 ## Development
 
@@ -139,25 +77,20 @@ pip install -e . pytest
 pytest
 ```
 
-## Third-party tools
+## Built on
 
-luau-check downloads and shells out to these projects. Thanks to their
-maintainers. This project is not affiliated with any of them.
+luau-check downloads and runs these tools. Thanks to their maintainers; this
+project is not affiliated with any of them.
 
 | Tool | Purpose | Author | License |
 | --- | --- | --- | --- |
-| [luau-lsp] | Type checking | Johnny Morgan | MIT |
-| [selene] | Linting | Kampfkarren | MPL-2.0 |
-| [StyLua] | Formatting | Johnny Morgan | MPL-2.0 |
+| [luau-lsp](https://github.com/JohnnyMorganz/luau-lsp) | Type checking | Johnny Morgan | MIT |
+| [selene](https://github.com/Kampfkarren/selene) | Linting | Kampfkarren | MPL-2.0 |
+| [StyLua](https://github.com/JohnnyMorganz/StyLua) | Formatting | Johnny Morgan | MPL-2.0 |
 
-Roblox type definitions are downloaded from the copy hosted at
-[luau-lsp.pages.dev](https://luau-lsp.pages.dev), which is generated by
-[luau-lsp's scripts](https://github.com/JohnnyMorganz/luau-lsp/tree/master/scripts)
-from Roblox's API dumps. luau-check itself is written against Luau (MIT).
-
-[luau-lsp]: https://github.com/JohnnyMorganz/luau-lsp
-[selene]: https://github.com/Kampfkarren/selene
-[StyLua]: https://github.com/JohnnyMorganz/StyLua
+Roblox type definitions are downloaded from the copy generated by luau-lsp at
+[luau-lsp.pages.dev](https://luau-lsp.pages.dev), built from Roblox's API
+dumps.
 
 ## License
 
