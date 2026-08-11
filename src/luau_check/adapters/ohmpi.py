@@ -19,6 +19,7 @@ Install strategy:
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 from pathlib import Path
@@ -56,11 +57,12 @@ import {{ execFileSync }} from "node:child_process"
 const LUAU_CHECK = {cmd_json}
 
 // The command may be "<python> -m luau_check.cli" (two tokens) when the CLI
-// is not on PATH, or a single binary path on a normal install. Split it so
-// execFileSync always receives a real executable name + argv (no shell).
-const LUAU_CHECK_PARTS = LUAU_CHECK.split(" ")
+// is not on PATH, or a single binary path on a normal install. Split on the
+// " -m " separator ONLY so a python path containing a space (Program Files)
+// survives as one token.
+const LUAU_CHECK_PARTS = LUAU_CHECK.split(" -m ")
 const LUAU_CHECK_BIN = LUAU_CHECK_PARTS[0]
-const LUAU_CHECK_ARGS = LUAU_CHECK_PARTS.slice(1)
+const LUAU_CHECK_ARGS = LUAU_CHECK_PARTS.length > 1 ? ["-m", LUAU_CHECK_PARTS[1]] : []
 
 export default function (pi: any) {{
   pi.setLabel?.("luau-check")
@@ -100,11 +102,68 @@ export default function (pi: any) {{
 '''
 
 
+def agent_settings_path() -> Path:
+    """~/.omp/agent/settings.json (or PI_CODING_AGENT_DIR equivalent)."""
+    base = os.environ.get("PI_CODING_AGENT_DIR")
+    if base:
+        return Path(base) / "settings.json"
+    return Path.home() / ".omp" / "agent" / "settings.json"
+
+
+def register_in_settings(ext_path: Path) -> None:
+    """Modern pi/omp loads extensions from settings.json `extensions` array.
+
+    Older pi auto-scanned `~/.omp/agent/extensions/`; omp >= 17 requires the
+    extension module path to be explicitly configured (or passed via
+    `--extension`). Write the absolute path into settings so discovery is
+    deterministic on every pi/omp version.
+    """
+    p = agent_settings_path()
+    data = {}
+    if p.exists():
+        try:
+            data = json.loads(p.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            data = {}
+    if not isinstance(data, dict):
+        data = {}
+    exts = data.get("extensions")
+    if not isinstance(exts, list):
+        exts = []
+    target = str(ext_path)
+    if target not in exts:
+        exts.append(target)
+    data["extensions"] = exts
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+
+
+def unregister_in_settings(ext_path: Path) -> bool:
+    p = agent_settings_path()
+    if not p.exists():
+        return False
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return False
+    exts = data.get("extensions")
+    if not isinstance(exts, list):
+        return False
+    target = str(ext_path)
+    if target not in exts:
+        return False
+    exts.remove(target)
+    data["extensions"] = exts
+    p.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    return True
+
+
 def install_extension(luau_check_cmd: str | None = None) -> Path:
     luau_check_cmd = luau_check_cmd or _luau_check_command()
     path = extension_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(extension_ts_content(luau_check_cmd), encoding="utf-8")
+    register_in_settings(path)
     return path
 
 
@@ -113,7 +172,10 @@ def is_installed() -> bool:
 
 
 def uninstall_extension() -> bool:
-    if not extension_path().exists():
-        return False
-    extension_path().unlink()
-    return True
+    removed = False
+    if extension_path().exists():
+        extension_path().unlink()
+        removed = True
+    if unregister_in_settings(extension_path()):
+        removed = True
+    return removed

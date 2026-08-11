@@ -71,11 +71,12 @@ import {{ execFileSync }} from "node:child_process"
 const LUAU_CHECK = {cmd_json}
 
 // The command may be "<python> -m luau_check.cli" (two tokens) when the CLI
-// is not on PATH, or a single binary path on a normal install. Split it so
-// execFileSync always receives a real executable name + argv (no shell).
-const LUAU_CHECK_PARTS = LUAU_CHECK.split(" ")
+// is not on PATH, or a single binary path on a normal install. Split on the
+// " -m " separator ONLY so a python path containing a space (Program Files)
+// survives as one token.
+const LUAU_CHECK_PARTS = LUAU_CHECK.split(" -m ")
 const LUAU_CHECK_BIN = LUAU_CHECK_PARTS[0]
-const LUAU_CHECK_ARGS = LUAU_CHECK_PARTS.slice(1)
+const LUAU_CHECK_ARGS = LUAU_CHECK_PARTS.length > 1 ? ["-m", LUAU_CHECK_PARTS[1]] : []
 
 // Determine if an opencode Event looks like a file-editing tool result.
 // opencode Event model (from @opencode-ai/sdk): file edits surface as
