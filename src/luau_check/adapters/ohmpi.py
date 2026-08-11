@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import subprocess
 from pathlib import Path
 
 from ..version import __version__
@@ -65,7 +66,9 @@ const LUAU_CHECK_BIN = LUAU_CHECK_PARTS[0]
 const LUAU_CHECK_ARGS = LUAU_CHECK_PARTS.length > 1 ? ["-m", LUAU_CHECK_PARTS[1]] : []
 
 export default function (pi: any) {{
-  pi.setLabel?.("luau-check")
+  // NOTE: do not call action methods (setLabel, setStatus, ...) during the
+  // factory: omp throws "Extension runtime not initialized" if an action
+  // method is invoked while the extension is loading.
 
   pi.on("tool_result", async (event: any) => {{
     const toolName: string = event?.toolName ?? event?.tool ?? ""
@@ -164,6 +167,19 @@ def install_extension(luau_check_cmd: str | None = None) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(extension_ts_content(luau_check_cmd), encoding="utf-8")
     register_in_settings(path)
+    # Also register via `pi install` (the built-in mechanism that makes pi
+    # auto-load the extension on every session; verified on pi 0.74.x).
+    pi_cli = shutil.which("pi")
+    if pi_cli:
+        try:
+            subprocess.run(
+                [pi_cli, "install", str(path)],
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+        except (OSError, subprocess.SubprocessError):
+            pass
     return path
 
 
