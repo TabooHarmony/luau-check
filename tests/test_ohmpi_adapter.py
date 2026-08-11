@@ -24,7 +24,10 @@ def test_extension_written(fake_pi_home):
     content = path.read_text()
     assert "/venv/bin/luau-check" in content
     assert "tool_result" in content
-    assert "additionalContext" in content
+    # tool_result patching content (ToolResultEventResult), not additionalContext
+    assert "type: \"text\"" in content
+    assert "additionalContext:" not in content
+    assert "content: [" in content
 
 
 def test_idempotent(fake_pi_home):

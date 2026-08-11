@@ -60,7 +60,8 @@ export default function (pi: any) {{
 
   pi.on("tool_result", async (event: any) => {{
     const toolName: string = event?.toolName ?? event?.tool ?? ""
-    if (!/Edit|Write|MultiEdit|Create|Patch/i.test(toolName)) return
+    // omp tool names are lowercase ("write", "edit", ...); match case-insensitively
+    if (!/write|edit|create|patch|apply/i.test(toolName)) return
 
     const input = event?.input ?? event?.toolInput ?? {{}}
     const fp: string | undefined =
@@ -76,10 +77,14 @@ export default function (pi: any) {{
     }} catch (e: any) {{
       const stderr = e?.stdout?.toString?.() ?? e?.stderr?.toString?.() ?? ""
       if (stderr.trim()) {{
+        // omp tool_result handlers patch the result content (ToolResultEventResult);
+        // there is no additionalContext channel on tool_result.
+        const existing = Array.isArray(event?.content) ? event.content : []
         return {{
-          continue: true,
-          additionalContext:
-            `[luau-check] ${{stderr.trim().replace(/\\n/g, " | ")}}`,
+          content: [
+            ...existing,
+            {{ type: "text", text: `[luau-check] ${{stderr.trim().replace(/\\n/g, " | ")}}` }},
+          ],
         }}
       }}
     }}
