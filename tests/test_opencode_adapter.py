@@ -49,4 +49,6 @@ def test_generated_module_valid_ts_shape(fake_opencode_home):
     assert 'id: "luau-check"' in content
     assert "server:" in content
     assert "event:" in content
-    assert "execSync" in content
+    assert "execFileSync" in content
+    # no shell-based execSync (injection surface)
+    assert "execSync" not in content

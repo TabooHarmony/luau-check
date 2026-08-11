@@ -7,7 +7,7 @@ Mechanism (verified against openai/codex source, v0.147):
   clobber user config.
 - A PostToolUse hook handler runs a command after Write/Edit tools. Its stdout
   is parsed as JSON:
-      {"hookSpecificOutput": {"eventName": "PostToolUse", "additionalContext": "..."}}
+      {"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": "..."}}
   If additionalContext is present, it is injected into the model context
   (advisory feedback). No decision/block = does not interrupt the agent.
 - The command runs in codex's own process env, so it must be an absolute path.
@@ -64,6 +64,18 @@ def current_hooks() -> dict:
         return {}
 
 
+def hooks_file_valid() -> bool:
+    """True if the existing hooks.json (if any) is valid JSON we may merge into."""
+    p = hooks_file_path()
+    if not p.exists():
+        return True
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+        return isinstance(data, dict)
+    except (json.JSONDecodeError, OSError):
+        return False
+
+
 def _luau_check_command() -> str:
     """Absolute path to the luau-check CLI. Prefer the active venv binary."""
     # The CLI entry point installed by pip: find it via shutil.which first.
@@ -96,6 +108,16 @@ set -uo pipefail
 
 LUAU_LENS="{luau_check_cmd}"
 
+# The command may be "<python> -m luau_check.cli" (two tokens) when the CLI
+# is not on PATH; run_check() handles both forms without eval.
+run_check() {{
+  if [[ "$LUAU_LENS" == *" -m "* ]]; then
+    $LUAU_LENS "$@"
+  else
+    "$LUAU_LENS" "$@"
+  fi
+}}
+
 input="$(cat)"
 # codex sends hook input as JSON on stdin with tool_name + tool_input
 tool_name="$(printf '%s' "$input" | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get("tool_name",""))' 2>/dev/null || true)"
@@ -118,7 +140,7 @@ case "$tool_input" in
 esac
 
 # Run the check; use --json so we can extract the summary
-out="$("$LUAU_LENS" check --json "$tool_input" 2>/dev/null)"
+out="$(run_check check --json "$tool_input" 2>/dev/null)"
 rc=$?
 if [ $rc -ne 0 ] && [ -n "$out" ]; then
   # Build additionalContext from diagnostics; only when there are errors
@@ -138,7 +160,7 @@ print("luau-check diagnostics (errors):")
 print("\\n".join(lines))
 ' 2>/dev/null || true)"
     if [ -n "$ctx" ]; then
-      python3 -c 'import json,sys; print(json.dumps({{"hookSpecificOutput":{{"eventName":"PostToolUse","additionalContext":sys.argv[1]}}}}))' "$ctx"
+      python3 -c 'import json,sys; print(json.dumps({{"hookSpecificOutput":{{"hookEventName":"PostToolUse","additionalContext":sys.argv[1]}}}}))' "$ctx"
     fi
   fi
 fi
@@ -169,6 +191,10 @@ def install_hooks(launcher: Path | None = None) -> bool:
     launcher = launcher or launcher_path()
     if not launcher.exists():
         raise FileNotFoundError(f"launcher not found: {launcher}")
+
+    # Never clobber an existing (even broken) hooks.json
+    if not hooks_file_valid():
+        return False
 
     path = hooks_file_path()
     hooks = current_hooks()

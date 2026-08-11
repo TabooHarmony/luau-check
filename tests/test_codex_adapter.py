@@ -100,6 +100,20 @@ def test_uninstall_hooks_removes_only_luau_lens(fake_codex_home, tmp_path):
     assert "Bash" in matchers
 
 
+def test_install_refuses_invalid_json(fake_codex_home, tmp_path):
+    (fake_codex_home / "hooks.json").write_text(
+        "{ INVALID JSON user data that must be preserved", encoding="utf-8"
+    )
+    launcher = tmp_path / "codex-hook"
+    launcher.write_text("#!/bin/sh\n", encoding="utf-8")
+    launcher.chmod(0o755)
+    assert codex.hooks_file_valid() is False
+    assert codex.install_hooks(launcher) is False
+    assert (fake_codex_home / "hooks.json").read_text(encoding="utf-8").startswith(
+        "{ INVALID JSON"
+    )
+
+
 def test_agents_md_snippet_mentions_check_and_exit_code():
     snippet = codex.agents_md_snippet()
     assert "luau-check check" in snippet

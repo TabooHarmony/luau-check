@@ -72,6 +72,16 @@ set -uo pipefail
 
 LUAU_LENS="{luau_check_cmd}"
 
+# The command may be "<python> -m luau_check.cli" (two tokens) when the CLI
+# is not on PATH; run_check() handles both forms without eval.
+run_check() {{
+  if [[ "$LUAU_LENS" == *" -m "* ]]; then
+    $LUAU_LENS "$@"
+  else
+    "$LUAU_LENS" "$@"
+  fi
+}}
+
 input="$(cat)"
 tool_name="$(printf '%s' "$input" | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get("tool_name",""))' 2>/dev/null || true)"
 tool_input="$(printf '%s' "$input" | python3 -c 'import sys,json; d=json.load(sys.stdin); ti=d.get("tool_input",{{}}); print(ti.get("file_path","") or ti.get("file","") or ti.get("path",""))' 2>/dev/null || true)"
@@ -93,7 +103,7 @@ case "$tool_input" in
 esac
 
 # Run the check; emit additionalContext only when there are errors
-out="$("$LUAU_LENS" check --json "$tool_input" 2>/dev/null)"
+out="$(run_check check --json "$tool_input" 2>/dev/null)"
 summary="$(printf '%s' "$out" | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get("summary",{{}}).get("errors",0))' 2>/dev/null || echo 0)"
 if [ "$summary" -gt 0 ]; then
   ctx="$(printf '%s' "$out" | python3 -c '

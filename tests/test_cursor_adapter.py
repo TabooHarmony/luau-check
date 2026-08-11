@@ -33,9 +33,13 @@ def test_write_launcher_creates_executable(tmp_path):
     assert "postToolUse" in content
 
 
-def test_install_hooks_writes_and_merges(fake_cursor_home, tmp_path):
+def test_install_hooks_writes_correct_schema(fake_cursor_home, tmp_path):
+    # pre-existing user hook in the documented shape
     (fake_cursor_home / "hooks.json").write_text(json.dumps({
-        "postToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "/usr/bin/other"}]}]
+        "version": 1,
+        "hooks": {
+            "afterFileEdit": [{"command": "/usr/bin/other"}]
+        }
     }), encoding="utf-8")
 
     launcher = tmp_path / "cursor-hook"
@@ -44,15 +48,20 @@ def test_install_hooks_writes_and_merges(fake_cursor_home, tmp_path):
 
     assert cursor.install_hooks(launcher) is True
     data = json.loads((fake_cursor_home / "hooks.json").read_text())
-    post = data["postToolUse"]
-    # user group preserved (matcher + hooks list shape)
-    assert any(g.get("matcher") == "Bash" for g in post)
-    # luau-check added
+    # documented schema: version + hooks wrapper
+    assert data.get("version") == 1
+    assert "hooks" in data
+    hooks = data["hooks"]
+    # user entry preserved
+    assert hooks.get("afterFileEdit") == [{"command": "/usr/bin/other"}]
+    # luau-check added to postToolUse as a flat entry
+    post = hooks.get("postToolUse", [])
     assert any(
-        g.get("matcher") == ".*"
-        and any(str(h.get("command", "")).startswith(str(launcher)) for h in g.get("hooks", []))
-        for g in post
+        isinstance(h, dict) and h.get("command") and str(h["command"]).startswith(str(launcher))
+        for h in post
     )
+    # no top-level event key (the bug the auditor caught)
+    assert "postToolUse" not in data
 
 
 def test_install_hooks_idempotent(fake_cursor_home, tmp_path):
@@ -69,17 +78,39 @@ def test_uninstall_removes_only_luau_check(fake_cursor_home, tmp_path):
     launcher.chmod(0o755)
     cursor.install_hooks(launcher)
     data = json.loads((fake_cursor_home / "hooks.json").read_text())
-    data["postToolUse"].append({"matcher": "Bash", "hooks": [{"type": "command", "command": "/bin/true"}]})
+    data["hooks"]["afterFileEdit"] = [{"command": "/bin/true"}]
     (fake_cursor_home / "hooks.json").write_text(json.dumps(data), encoding="utf-8")
 
     assert cursor.uninstall_hooks(launcher) is True
     remaining = json.loads((fake_cursor_home / "hooks.json").read_text())
-    post = remaining["postToolUse"]
-    commands = [
-        h.get("command")
-        for g in post
-        for h in g.get("hooks", [])
-        if isinstance(h, dict)
-    ]
+    post = remaining["hooks"]["postToolUse"]
+    commands = [h.get("command") for h in post if isinstance(h, dict)]
     assert not any(c and c.startswith(str(launcher)) for c in commands)
-    assert "/bin/true" in commands
+    assert remaining["hooks"]["afterFileEdit"] == [{"command": "/bin/true"}]
+
+
+def test_invalid_json_not_clobbered(fake_cursor_home, tmp_path):
+    # the auditor's #4: broken user hooks.json must NOT be overwritten
+    (fake_cursor_home / "hooks.json").write_text(
+        "{ INVALID JSON user data that must be preserved", encoding="utf-8"
+    )
+    launcher = tmp_path / "cursor-hook"
+    launcher.write_text("#!/bin/sh\n", encoding="utf-8")
+    launcher.chmod(0o755)
+
+    assert cursor.hooks_file_valid() is False
+    assert cursor.install_hooks(launcher) is False
+    # original content preserved byte-for-byte
+    assert (fake_cursor_home / "hooks.json").read_text(encoding="utf-8").startswith(
+        "{ INVALID JSON"
+    )
+
+
+def test_hook_script_emits_cursor_output_shape(tmp_path):
+    launcher = cursor.write_launcher(tmp_path / "cursor-hook")
+    content = launcher.read_text(encoding="utf-8")
+    # cursor output is snake_case additional_context, no hookSpecificOutput envelope
+    assert '"additional_context"' in content
+    assert "hookSpecificOutput" not in content
+    # cursor hook entries are flat {command, ...}, not the codex {matcher, hooks:[...]} shape
+    assert "MATCHER" not in content or "hooks\": [" not in content
