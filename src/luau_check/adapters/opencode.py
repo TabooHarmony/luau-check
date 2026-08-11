@@ -71,14 +71,26 @@ import {{ execSync }} from "node:child_process"
 const LUAU_CHECK = {cmd_json}
 
 // Determine if an opencode Event looks like a file-editing tool result.
+// opencode Event model (from @opencode-ai/sdk): file edits surface as
+// `message.part.updated` events whose part is a tool part with its
+// state.toolInput carrying file_path once the call completes.
 function extractFilePath(event: any): string | null {{
-  // Try common shapes: tool call with input.file_path, or message part
-  const t = event?.tool ?? event?.toolName ?? event?.name
-  if (!t) return null
-  const name = String(t)
+  if (!event || typeof event !== "object") return null
+
+  // message.part.updated -> properties.part
+  const part = event?.properties?.part ?? event?.part
+  if (!part || part.type !== "tool") return null
+
+  const name = String(part?.tool ?? part?.toolName ?? "")
   if (!/Edit|Write|MultiEdit|Create|Patch/i.test(name)) return null
 
-  const input = event?.input ?? event?.toolInput ?? event?.tool_input ?? {{}}
+  // ToolState.toolInput may be a string (JSON) or object
+  const state = part?.state ?? part?.toolState ?? {{}}
+  let input = state?.toolInput ?? state?.input ?? state ?? {{}}
+  if (typeof input === "string") {{
+    try {{ input = JSON.parse(input) }} catch {{ return null }}
+  }}
+
   const fp = input?.file_path ?? input?.filePath ?? input?.path ?? input?.file
   if (typeof fp === "string" && (fp.endsWith(".luau") || fp.endsWith(".lua"))) {{
     return fp
@@ -105,11 +117,18 @@ export async function luauCheck(event: any): Promise<void> {{
   }}
 }}
 
-export const Plugin: any = () => ({{
-  event: async ({{ event }}: any) => {{
-    await luauCheck(event)
+const plugin = {{
+  id: "luau-check",
+  server: async (input: any, _options?: any) => {{
+    return {{
+      event: async ({{ event }}: any) => {{
+        await luauCheck(event)
+      }},
+    }}
   }},
-}})
+}}
+
+export default plugin
 '''
 
 

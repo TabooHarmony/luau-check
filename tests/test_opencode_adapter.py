@@ -44,7 +44,9 @@ def test_is_installed_and_uninstall(fake_opencode_home):
 
 def test_generated_module_valid_ts_shape(fake_opencode_home):
     content = opencode.plugin_ts_content("/venv/bin/luau-check")
-    # must export a Plugin factory and use event hook
-    assert "export const Plugin" in content
+    # must default-export an object {id, server} returning hooks with event
+    assert "export default plugin" in content
+    assert 'id: "luau-check"' in content
+    assert "server:" in content
     assert "event:" in content
     assert "execSync" in content
