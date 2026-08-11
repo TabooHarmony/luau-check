@@ -44,7 +44,8 @@ tree, so hooks and agents can treat it as a gate.
 ## Agent usage
 
 luau-check is deliberately harness-agnostic. The CLI is the contract. Per-agent
-wiring (AGENTS.md snippet, Claude Code plugin, cursor rules) is built on top.
+wiring is built on top, and `luau-check install-agent` wires them all in one
+command.
 
 Example AGENTS.md snippet for Codex:
 
@@ -62,21 +63,33 @@ files and on the whole project before finishing a task.
 luau-check install-agent
 ```
 
-This auto-detects installed harnesses and wires luau-check in:
+This auto-detects installed harnesses and wires luau-check in. Every adapter
+shares one design: advisory only (never blocks), silent when a file is clean,
+and it never edits your AGENTS.md, CLAUDE.md, or user config files.
 
-- **Codex**: writes a `PostToolUse` hook into `~/.codex/hooks.json` (a managed
-  file, never touches your `config.toml`). After a Write/Edit of a `.luau`,
-  it runs `luau-check check --json` on the edited file and injects the errors
-  into codex's context as advisory feedback. Clean writes are silent.
-- **Claude Code**: installs a skills-directory plugin at
-  `~/.claude/skills/luau-check/`, auto-discovered on next session as
-  `luau-check@skills-dir`. Same PostToolUse behavior via a bundled hook,
-  `additionalContext` fed back only on errors.
-- **Cursor / Pi**: the CLI works today from any harness that can run shell
-  commands; first-class adapters are planned.
+- **Codex**: `PostToolUse` hook in `~/.codex/hooks.json` (managed file).
+  After a Write/Edit of a `.luau`, runs `luau-check check --json` on the file
+  and injects errors as advisory context. Verified live end-to-end.
+- **Claude Code**: skills-directory plugin at
+  `~/.claude/skills/luau-check/`, auto-discovered as `luau-check@skills-dir`.
+  Bundled PostToolUse hook, `additionalContext` fed back only on errors.
+  Verified live end-to-end.
+- **Cursor**: user-level `postToolUse` hook in `~/.cursor/hooks.json`
+  (project level also works; the adapter uses user level). Same advisory
+  JSON-over-stdio contract, same silence-on-clean. Contract verified; needs a
+  real Cursor session to smoke (no headless Cursor exists).
+- **OpenCode**: TS plugin at `~/.config/opencode/plugin/luau-check.ts` using
+  the `event` hook (file edits surface as `message.part.updated` tool parts).
+  One module covers opencode v1 and v2 (identical plugin API, verified against
+  both branches). Verified live in opencode 1.18.16.
+- **Pi / Oh-My-Pi**: TS extension at `~/.omp/agent/extensions/luau-check.ts`.
+  `tool_result` handler runs the check and patches the result content with the
+  diagnostics (omp's `tool_result` has no context-injection channel; content
+  patching is the supported mechanism). Verified live in omp 17.2.12.
 
 `install-agent` never edits your AGENTS.md, CLAUDE.md, or config files. It
 prints the recommended AGENTS.md snippet for you to add yourself.
+
 
 ### Claude Code without an Anthropic subscription
 
