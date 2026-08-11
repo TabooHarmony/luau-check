@@ -55,6 +55,13 @@ import {{ execFileSync }} from "node:child_process"
 
 const LUAU_CHECK = {cmd_json}
 
+// The command may be "<python> -m luau_check.cli" (two tokens) when the CLI
+// is not on PATH, or a single binary path on a normal install. Split it so
+// execFileSync always receives a real executable name + argv (no shell).
+const LUAU_CHECK_PARTS = LUAU_CHECK.split(" ")
+const LUAU_CHECK_BIN = LUAU_CHECK_PARTS[0]
+const LUAU_CHECK_ARGS = LUAU_CHECK_PARTS.slice(1)
+
 export default function (pi: any) {{
   pi.setLabel?.("luau-check")
 
@@ -69,7 +76,7 @@ export default function (pi: any) {{
     if (!fp || !(fp.endsWith(".luau") || fp.endsWith(".lua"))) return
 
     try {{
-      execFileSync(LUAU_CHECK, ["check", "--json", fp], {{
+      execFileSync(LUAU_CHECK_BIN, [...LUAU_CHECK_ARGS, "check", "--json", fp], {{
         encoding: "utf-8",
         timeout: 30000,
         stdio: ["ignore", "pipe", "ignore"],

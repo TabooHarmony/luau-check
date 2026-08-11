@@ -30,7 +30,9 @@ from __future__ import annotations
 
 import json
 import os
+import platform
 import stat
+import sys
 from pathlib import Path
 
 from ..version import __version__
@@ -45,7 +47,10 @@ def hooks_file_path() -> Path:
 
 
 def launcher_path() -> Path:
-    return BIN_DIR / HOOK_LAUNCHER_NAME
+    p = BIN_DIR / HOOK_LAUNCHER_NAME
+    if platform.system() == "Windows":
+        return p.with_suffix(".cmd")
+    return p
 
 
 def current_hooks() -> dict:
@@ -90,19 +95,23 @@ def _luau_check_command() -> str:
     # fallback: absolute python + module. The launcher must call it as
     # `"$PY" -m luau_check.cli` (two tokens), so we need a small wrapper.
     import sys
-    return f"{sys.executable} -m luau_check.cli"
+    fallback = f"{sys.executable} -m luau_check.cli"
+    if os.name == "nt":
+        # git-bash needs forward slashes for Windows paths
+        fallback = fallback.replace("\\", "/")
+    return fallback
 
 
-def hook_script_content(luau_check_cmd: str) -> str:
+def hook_script_content(luau_check_cmd: str, python_path: str | None = None) -> str:
     """Bash hook script for cursor postToolUse.
 
     Reads cursor's JSON on stdin (toolName, toolInput), runs luau-check on the
     edited file, prints advisory output ONLY on errors (cursor's
     `additional_context` field, snake_case, no envelope). Silent on clean.
     """
-    # If the cmd is "<python> -m mod", the script must call it as two tokens.
-    # We handle that below with a small wrapper; the effective command stays
-    # whatever `$LUAU_CHECK` resolves to at runtime.
+    python_path = python_path or sys.executable
+    if os.name == "nt":
+        python_path = python_path.replace("\\", "/")
     return f'''#!/usr/bin/env bash
 # luau-check cursor hook (v{__version__})
 # postToolUse hook: runs luau-check on the file the agent just wrote.
@@ -111,23 +120,27 @@ set -uo pipefail
 
 LUAU_CHECK="{luau_check_cmd}"
 
+# Real interpreter for stdin parsing / JSON emission.
+# (Windows git-bash has no `python3`; use the interpreter that generated us.)
+PYTHON="{python_path}"
+
 # The command may be "<python> -m luau_check.cli" (two tokens) when the CLI
 # is not on PATH; run_check() handles both forms without eval.
 run_check() {{
   if [[ "$LUAU_CHECK" == *" -m "* ]]; then
-    # split the generated "<python> -m luau_check.cli" string into argv tokens,
-    # run with the check args appended. Preserve "$@" (the check args).
-    local -a cmd
-    read -r -a cmd <<< "$LUAU_CHECK"
-    "${{cmd[@]}}" "$@"
+    # Split "<python> -m luau_check.cli" on the " -m " separator only, so a
+    # python path containing spaces (Program Files) survives as one argv token.
+    PY_BIN="${{LUAU_CHECK%% -m *}}"
+    PY_ARGS="${{LUAU_CHECK#* -m }}"
+    "$PY_BIN" -m $PY_ARGS "$@"
   else
     "$LUAU_CHECK" "$@"
   fi
 }}
 
 input="$(cat)"
-tool_name="$(printf '%s' "$input" | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get("tool_name","") or d.get("toolName",""))' 2>/dev/null || true)"
-file_path="$(printf '%s' "$input" | python3 -c 'import sys,json; d=json.load(sys.stdin); ti=d.get("tool_input",{{}}) or d.get("toolInput",{{}}); print(ti.get("file_path","") or ti.get("filePath","") or ti.get("path","") or ti.get("file",""))' 2>/dev/null || true)"
+tool_name="$(printf '%s' "$input" | "$PYTHON" -c 'import sys,json; d=json.load(sys.stdin); print(d.get("tool_name","") or d.get("toolName",""))' 2>/dev/null || true)"
+file_path="$(printf '%s' "$input" | "$PYTHON" -c 'import sys,json; d=json.load(sys.stdin); ti=d.get("tool_input",{{}}) or d.get("toolInput",{{}}); print(ti.get("file_path","") or ti.get("filePath","") or ti.get("path","") or ti.get("file",""))' 2>/dev/null || true)"
 
 # Only react to write/edit tools (cursor tool names: Edit, Write, applyPatch, etc)
 case "$tool_name" in
@@ -146,9 +159,9 @@ esac
 
 # Run the check; emit advisory output only when there are diagnostics
 out="$(run_check check --json "$file_path" 2>/dev/null)"
-summary="$(printf '%s' "$out" | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get("summary",{{}}).get("total",0))' 2>/dev/null || echo 0)"
+summary="$(printf '%s' "$out" | "$PYTHON" -c 'import sys,json; d=json.load(sys.stdin); print(d.get("summary",{{}}).get("total",0))' 2>/dev/null || echo 0)"
 if [ "$summary" -gt 0 ]; then
-  ctx="$(printf '%s' "$out" | python3 -c '
+  ctx="$(printf '%s' "$out" | "$PYTHON" -c '
 import sys,json
 d=json.load(sys.stdin)
 diags=d.get("diagnostics",[])
@@ -162,7 +175,7 @@ print("luau-check diagnostics:")
 print("\\n".join(lines))
 ' 2>/dev/null || true)"
   if [ -n "$ctx" ]; then
-    python3 -c 'import json,sys; print(json.dumps({{"additional_context":sys.argv[1]}}))' "$ctx"
+    "$PYTHON" -c 'import json,sys; print(json.dumps({{"additional_context":sys.argv[1]}}))' "$ctx"
   fi
 fi
 exit 0
@@ -170,11 +183,10 @@ exit 0
 
 
 def write_launcher(dest: Path | None = None) -> Path:
+    from .launchers import write_launcher as _write_launcher
+
     dest = dest or launcher_path()
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    dest.write_text(hook_script_content(_luau_check_command()), encoding="utf-8")
-    dest.chmod(dest.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
-    return dest
+    return _write_launcher(hook_script_content(_luau_check_command()), dest)
 
 
 def install_hooks(launcher: Path | None = None) -> bool:

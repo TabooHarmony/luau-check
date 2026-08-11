@@ -31,6 +31,7 @@ from __future__ import annotations
 import json
 import os
 import stat
+import sys
 from pathlib import Path
 
 from ..version import __version__
@@ -58,12 +59,19 @@ def _luau_check_command() -> str:
     if found and os.path.isabs(found):
         return found
     import sys
-    return f"{sys.executable} -m luau_check.cli"
+    fallback = f"{sys.executable} -m luau_check.cli"
+    if os.name == "nt":
+        # git-bash needs forward slashes for Windows paths
+        fallback = fallback.replace("\\", "/")
+    return fallback
 
 
-def hook_script_content(luau_check_cmd: str) -> str:
+def hook_script_content(luau_check_cmd: str, python_path: str | None = None) -> str:
     """Bash hook script. Reads claude hook JSON on stdin, runs luau-check on the
     edited file, emits additionalContext only when there are errors."""
+    python_path = python_path or sys.executable
+    if os.name == "nt":
+        python_path = python_path.replace("\\", "/")
     return f'''#!/usr/bin/env bash
 # luau-check claude hook (v{__version__})
 # PostToolUse hook: runs luau-check on the file the agent just wrote.
@@ -72,23 +80,27 @@ set -uo pipefail
 
 LUAU_LENS="{luau_check_cmd}"
 
+# Real interpreter for stdin parsing / JSON emission.
+# (Windows git-bash has no `python3`; use the interpreter that generated us.)
+PYTHON="{python_path}"
+
 # The command may be "<python> -m luau_check.cli" (two tokens) when the CLI
 # is not on PATH; run_check() handles both forms without eval.
 run_check() {{
   if [[ "$LUAU_LENS" == *" -m "* ]]; then
-    # split the generated "<python> -m luau_check.cli" string into argv tokens,
-    # run with the check args appended. Preserve "$@" (the check args).
-    local -a cmd
-    read -r -a cmd <<< "$LUAU_LENS"
-    "${{cmd[@]}}" "$@"
+    # Split "<python> -m luau_check.cli" on the " -m " separator only, so a
+    # python path containing spaces (Program Files) survives as one argv token.
+    PY_BIN="${{LUAU_LENS%% -m *}}"
+    PY_ARGS="${{LUAU_LENS#* -m }}"
+    "$PY_BIN" -m $PY_ARGS "$@"
   else
     "$LUAU_LENS" "$@"
   fi
 }}
 
 input="$(cat)"
-tool_name="$(printf '%s' "$input" | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get("tool_name",""))' 2>/dev/null || true)"
-tool_input="$(printf '%s' "$input" | python3 -c 'import sys,json; d=json.load(sys.stdin); ti=d.get("tool_input",{{}}); print(ti.get("file_path","") or ti.get("file","") or ti.get("path",""))' 2>/dev/null || true)"
+tool_name="$(printf '%s' "$input" | "$PYTHON" -c 'import sys,json; d=json.load(sys.stdin); print(d.get("tool_name",""))' 2>/dev/null || true)"
+tool_input="$(printf '%s' "$input" | "$PYTHON" -c 'import sys,json; d=json.load(sys.stdin); ti=d.get("tool_input",{{}}); print(ti.get("file_path","") or ti.get("file","") or ti.get("path",""))' 2>/dev/null || true)"
 
 # Only react to write/edit tools
 case "$tool_name" in
@@ -108,9 +120,9 @@ esac
 
 # Run the check; emit additionalContext only when there are diagnostics
 out="$(run_check check --json "$tool_input" 2>/dev/null)"
-summary="$(printf '%s' "$out" | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get("summary",{{}}).get("total",0))' 2>/dev/null || echo 0)"
+summary="$(printf '%s' "$out" | "$PYTHON" -c 'import sys,json; d=json.load(sys.stdin); print(d.get("summary",{{}}).get("total",0))' 2>/dev/null || echo 0)"
 if [ "$summary" -gt 0 ]; then
-  ctx="$(printf '%s' "$out" | python3 -c '
+  ctx="$(printf '%s' "$out" | "$PYTHON" -c '
 import sys,json
 d=json.load(sys.stdin)
 diags=d.get("diagnostics",[])
@@ -124,7 +136,7 @@ print("luau-check diagnostics:")
 print("\\n".join(lines))
 ' 2>/dev/null || true)"
   if [ -n "$ctx" ]; then
-    python3 -c 'import json,sys; print(json.dumps({{"hookSpecificOutput":{{"hookEventName":"PostToolUse","additionalContext":sys.argv[1]}}}}))' "$ctx"
+    "$PYTHON" -c 'import json,sys; print(json.dumps({{"hookSpecificOutput":{{"hookEventName":"PostToolUse","additionalContext":sys.argv[1]}}}}))' "$ctx"
   fi
 fi
 exit 0
@@ -173,8 +185,20 @@ def install_plugin(luau_check_cmd: str | None = None) -> Path:
     script.write_text(hook_script_content(luau_check_cmd), encoding="utf-8")
     script.chmod(script.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
+    # Windows: hook command must be a .cmd that runs the .sh via git-bash.
+    from .launchers import launcher_cmd_content
+
+    hook_ref = "scripts/luau-check-hook.sh"
+    if os.name == "nt":
+        cmd = scripts_dir / "luau-check-hook.cmd"
+        cmd.write_text(
+            launcher_cmd_content(script),
+            encoding="utf-8",
+        )
+        hook_ref = "scripts/luau-check-hook.cmd"
+
     (hooks_dir / "hooks.json").write_text(
-        json.dumps(hooks_json_content("scripts/luau-check-hook.sh"), indent=2) + "\n",
+        json.dumps(hooks_json_content(hook_ref), indent=2) + "\n",
         encoding="utf-8",
     )
 

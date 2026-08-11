@@ -79,9 +79,9 @@ set -uo pipefail
 LUAU_LENS="python3 -m luau_check.cli"
 run_check() {
   if [[ "$LUAU_LENS" == *" -m "* ]]; then
-    local -a cmd
-    read -r -a cmd <<< "$LUAU_LENS"
-    "${cmd[@]}" "$@"
+    PY_BIN="${LUAU_LENS%% -m *}"
+    PY_ARGS="${LUAU_LENS#* -m }"
+    "$PY_BIN" -m $PY_ARGS "$@"
   else
     "$LUAU_LENS" "$@"
   fi
