@@ -1,4 +1,4 @@
-"""Codex CLI adapter for luau-lens.
+"""Codex CLI adapter for luau-check.
 
 Mechanism (verified against openai/codex source, v0.147):
 - Codex loads PostToolUse hooks from `~/.codex/hooks.json` (the managed hook
@@ -15,8 +15,8 @@ Mechanism (verified against openai/codex source, v0.147):
 Install strategy:
   1. Write `~/.codex/hooks.json` (merge with existing hooks.json if present,
      preserving user entries).
-  2. Write a launcher script `~/.luau-lens/bin/codex-hook` that runs
-     `luau-lens check --json <file>` for the edited file (or project if the
+  2. Write a launcher script `~/.luau-check/bin/codex-hook` that runs
+     `luau-check check --json <file>` for the edited file (or project if the
      file isn't a luau file) and emits the PostToolUse JSON with diagnostics
      as additionalContext ONLY when there are errors. Clean output => emit
      nothing (empty stdout) so the agent sees zero feedback.
@@ -47,7 +47,7 @@ def hooks_file_path() -> Path:
 
 
 def launcher_path() -> Path:
-    return Path.home() / ".luau-lens" / "bin" / HOOK_LAUNCHER_NAME
+    return Path.home() / ".luau-check" / "bin" / HOOK_LAUNCHER_NAME
 
 
 def current_hooks() -> dict:
@@ -64,14 +64,14 @@ def current_hooks() -> dict:
         return {}
 
 
-def _luau_lens_command() -> str:
-    """Absolute path to the luau-lens CLI. Prefer the active venv binary."""
+def _luau_check_command() -> str:
+    """Absolute path to the luau-check CLI. Prefer the active venv binary."""
     # The CLI entry point installed by pip: find it via shutil.which first.
-    found = shutil_which("luau-lens")
+    found = shutil_which("luau-check")
     if found and os.path.isabs(found):
         return found
-    # fallback: python -m luau_lens.cli
-    fallback = f"{sys.executable} -m luau_lens.cli"
+    # fallback: python -m luau_check.cli
+    fallback = f"{sys.executable} -m luau_check.cli"
     return fallback
 
 
@@ -80,21 +80,21 @@ def shutil_which(cmd: str) -> str | None:
     return shutil.which(cmd)
 
 
-def hook_script_content(luau_lens_cmd: str) -> str:
+def hook_script_content(luau_check_cmd: str) -> str:
     """Shell script emitted by the codex hook.
 
     Reads codex's hook JSON from stdin (codex passes tool info this way),
-    extracts the edited file path from tool_input, and runs luau-lens check
+    extracts the edited file path from tool_input, and runs luau-check check
     on it. On errors, prints the PostToolUse JSON with diagnostics in
     additionalContext. On clean, prints nothing.
     """
     return f'''#!/usr/bin/env bash
-# luau-lens codex hook (v{__version__})
-# PostToolUse hook: runs luau-lens on the file the agent just wrote.
+# luau-check codex hook (v{__version__})
+# PostToolUse hook: runs luau-check on the file the agent just wrote.
 # Emits additionalContext ONLY when there are errors. Clean => silent.
 set -uo pipefail
 
-LUAU_LENS="{luau_lens_cmd}"
+LUAU_LENS="{luau_check_cmd}"
 
 input="$(cat)"
 # codex sends hook input as JSON on stdin with tool_name + tool_input
@@ -134,7 +134,7 @@ for x in diags:
     if x.get("severity")=="error":
         lines.append(f"{{x[\"file\"]}}:{{x[\"line\"]}}:{{x[\"column\"]}}: {{x[\"code\"]}} {{x[\"message\"]}}")
 if not lines: sys.exit(0)
-print("luau-lens diagnostics (errors):")
+print("luau-check diagnostics (errors):")
 print("\\n".join(lines))
 ' 2>/dev/null || true)"
     if [ -n "$ctx" ]; then
@@ -154,17 +154,17 @@ def write_launcher(dest: Path | None = None) -> Path:
     """Write the codex hook launcher script. Returns its path."""
     dest = dest or launcher_path()
     dest.parent.mkdir(parents=True, exist_ok=True)
-    luau_lens_cmd = _luau_lens_command()
-    dest.write_text(hook_script_content(luau_lens_cmd), encoding="utf-8")
+    luau_check_cmd = _luau_check_command()
+    dest.write_text(hook_script_content(luau_check_cmd), encoding="utf-8")
     dest.chmod(dest.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
     return dest
 
 
 def install_hooks(launcher: Path | None = None) -> bool:
-    """Merge a luau-lens PostToolUse hook into ~/.codex/hooks.json.
+    """Merge a luau-check PostToolUse hook into ~/.codex/hooks.json.
 
     Preserves any existing hooks. Returns True if the file was written or
-    changed, False if a luau-lens hook already exists with the same command.
+    changed, False if a luau-check hook already exists with the same command.
     """
     launcher = launcher or launcher_path()
     if not launcher.exists():
@@ -178,7 +178,7 @@ def install_hooks(launcher: Path | None = None) -> bool:
     if not isinstance(post, list):
         post = []
 
-    # Look for an existing luau-lens matcher to avoid duplication
+    # Look for an existing luau-check matcher to avoid duplication
     for group in post:
         if not isinstance(group, dict):
             continue
@@ -214,7 +214,7 @@ def install_hooks(launcher: Path | None = None) -> bool:
 
 
 def uninstall_hooks(launcher: Path | None = None) -> bool:
-    """Remove the luau-lens matcher group from hooks.json. Returns True if removed."""
+    """Remove the luau-check matcher group from hooks.json. Returns True if removed."""
     launcher = launcher or launcher_path()
     path = hooks_file_path()
     hooks = current_hooks()
@@ -249,12 +249,12 @@ def agents_md_snippet() -> str:
     theirs.
     """
     return (
-        "## Luau checks (luau-lens)\n"
+        "## Luau checks (luau-check)\n"
         "\n"
         "Before declaring a Luau task complete, run:\n"
         "\n"
         "```bash\n"
-        "luau-lens check <edited-file-or-directory>\n"
+        "luau-check check <edited-file-or-directory>\n"
         "```\n"
         "\n"
         "It type-checks with luau-lsp, lints with selene, and checks "

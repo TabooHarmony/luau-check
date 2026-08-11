@@ -162,7 +162,7 @@ def run_stylua_check(filepath: str, project_root: str | None = None,
                 diagnostics.append(Diagnostic(
                     file=diff_file, line=1, column=1, end_line=None, end_column=None,
                     code="StyLuaFormat", severity="warning",
-                    message="Code is not formatted (run luau-lens format to fix)",
+                    message="Code is not formatted (run luau-check format to fix)",
                     source="stylua",
                 ))
     return diagnostics

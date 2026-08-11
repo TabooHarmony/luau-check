@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from luau_lens.adapters import codex
+from luau_check.adapters import codex
 
 
 @pytest.fixture
@@ -38,7 +38,7 @@ def test_write_launcher_creates_executable(tmp_path):
     assert launcher.exists()
     assert os.access(launcher, os.X_OK)
     content = launcher.read_text(encoding="utf-8")
-    assert "luau-lens" in content
+    assert "luau-check" in content
     assert "PostToolUse" in content
 
 
@@ -59,7 +59,7 @@ def test_install_hooks_writes_and_merges(fake_codex_home, tmp_path):
     post = data["PostToolUse"]
     # user group preserved
     assert any(g.get("matcher") == "Bash" for g in post)
-    # luau-lens group added
+    # luau-check group added
     ll = [g for g in post if g.get("matcher") == codex.HOOK_MATCHER_TOOLS]
     assert len(ll) == 1
     assert ll[0]["hooks"][0]["command"] == str(launcher)
@@ -102,6 +102,6 @@ def test_uninstall_hooks_removes_only_luau_lens(fake_codex_home, tmp_path):
 
 def test_agents_md_snippet_mentions_check_and_exit_code():
     snippet = codex.agents_md_snippet()
-    assert "luau-lens check" in snippet
+    assert "luau-check check" in snippet
     assert "Exit code 0" in snippet
     assert "AGENTS.md" not in snippet  # it's content for AGENTS.md, doesn't self-reference

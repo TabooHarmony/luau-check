@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from luau_lens.adapters import claude
+from luau_check.adapters import claude
 
 
 @pytest.fixture
@@ -21,25 +21,25 @@ def fake_claude_home(tmp_path: Path, monkeypatch):
 
 
 def test_install_plugin_creates_tree(fake_claude_home):
-    plugin_dir = claude.install_plugin(luau_lens_cmd="/venv/bin/luau-lens")
+    plugin_dir = claude.install_plugin(luau_check_cmd="/venv/bin/luau-check")
     assert plugin_dir.exists()
     assert (plugin_dir / ".claude-plugin" / "plugin.json").exists()
     assert (plugin_dir / "hooks" / "hooks.json").exists()
-    script = plugin_dir / "scripts" / "luau-lens-hook.sh"
+    script = plugin_dir / "scripts" / "luau-check-hook.sh"
     assert script.exists()
     assert os.access(script, os.X_OK)
 
 
 def test_plugin_json_shape(fake_claude_home):
-    claude.install_plugin(luau_lens_cmd="/venv/bin/luau-lens")
+    claude.install_plugin(luau_check_cmd="/venv/bin/luau-check")
     data = json.loads((fake_claude_home / claude.PLUGIN_NAME / ".claude-plugin" / "plugin.json").read_text())
-    assert data["name"] == "luau-lens"
+    assert data["name"] == "luau-check"
     assert "version" in data
     assert "description" in data
 
 
 def test_hooks_json_matches_write_edit(fake_claude_home):
-    claude.install_plugin(luau_lens_cmd="/venv/bin/luau-lens")
+    claude.install_plugin(luau_check_cmd="/venv/bin/luau-check")
     data = json.loads((fake_claude_home / claude.PLUGIN_NAME / "hooks" / "hooks.json").read_text())
     post = data["hooks"]["PostToolUse"]
     assert post[0]["matcher"] == claude.HOOK_MATCHER
@@ -47,20 +47,20 @@ def test_hooks_json_matches_write_edit(fake_claude_home):
     assert cmd["type"] == "command"
     # must reference the plugin root so it works in-place
     assert "${CLAUDE_PLUGIN_ROOT}" in cmd["command"]
-    assert "luau-lens-hook.sh" in cmd["command"]
+    assert "luau-check-hook.sh" in cmd["command"]
 
 
 def test_hook_script_has_lens_cmd_and_silent_on_clean(fake_claude_home):
-    claude.install_plugin(luau_lens_cmd="/venv/bin/luau-lens")
-    script = (fake_claude_home / claude.PLUGIN_NAME / "scripts" / "luau-lens-hook.sh").read_text()
-    assert "/venv/bin/luau-lens" in script
+    claude.install_plugin(luau_check_cmd="/venv/bin/luau-check")
+    script = (fake_claude_home / claude.PLUGIN_NAME / "scripts" / "luau-check-hook.sh").read_text()
+    assert "/venv/bin/luau-check" in script
     assert "additionalContext" in script
     assert "summary" in script
 
 
 def test_is_installed_and_uninstall(fake_claude_home):
     assert claude.is_installed() is False
-    claude.install_plugin(luau_lens_cmd="/venv/bin/luau-lens")
+    claude.install_plugin(luau_check_cmd="/venv/bin/luau-check")
     assert claude.is_installed() is True
     assert claude.uninstall_plugin() is True
     assert claude.is_installed() is False
@@ -68,11 +68,11 @@ def test_is_installed_and_uninstall(fake_claude_home):
 
 
 def test_install_idempotent_overwrites(fake_claude_home):
-    first = claude.install_plugin(luau_lens_cmd="/venv/bin/luau-lens")
-    second = claude.install_plugin(luau_lens_cmd="/new/path/luau-lens")
+    first = claude.install_plugin(luau_check_cmd="/venv/bin/luau-check")
+    second = claude.install_plugin(luau_check_cmd="/new/path/luau-check")
     assert first == second
     # updated command path is reflected
-    script = (first / "scripts" / "luau-lens-hook.sh").read_text()
-    assert "/new/path/luau-lens" in script
+    script = (first / "scripts" / "luau-check-hook.sh").read_text()
+    assert "/new/path/luau-check" in script
     # exactly one plugin dir
     assert len(list(fake_claude_home.iterdir())) == 1

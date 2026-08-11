@@ -1,21 +1,23 @@
 [project]
-name = "luau-lens"
+name = "luau-check"
 version = "2.0.0"
-description = "Luau diagnostics for AI coding agents. CLI-first, harness-agnostic: checks, linting, and formatting that agents can run without an LLM turn."
+description = "Automatic Luau diagnostics for AI coding agents. CLI for on-demand checks, hooks for instant feedback (luau-lsp + selene + stylua, zero config)."
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.11"
 dependencies = []
 
 [project.scripts]
-luau-lens = "luau_lens.cli:main"
+luau-check = "luau_check.cli:main"
+# backwards-compat alias for the old name
+luau-lens = "luau_check.cli:main"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/luau_lens"]
+packages = ["src/luau_check"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

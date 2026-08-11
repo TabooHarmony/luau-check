@@ -1,4 +1,4 @@
-# luau-lens
+# luau-check
 
 Luau diagnostics for AI coding agents. A single, dependency-free CLI that wraps
 **luau-lsp** (type checking), **selene** (linting), and **stylua** (formatting)
@@ -11,31 +11,31 @@ any harness that can run a shell command.
 ## Install
 
 ```bash
-pip install luau-lens
-# or: uv tool install luau-lens
+pip install luau-check
+# or: uv tool install luau-check
 ```
 
 First run downloads `luau-lsp`, `selene`, `stylua`, and the Roblox type
-definitions into `~/.luau-lens/` automatically. No manual setup.
+definitions into `~/.luau-check/` automatically. No manual setup.
 
 ## Commands
 
 ```bash
 # type-check and lint files or a directory
-luau-lens check src/ server.luau client.luau
-luau-lens check src/ --json
+luau-check check src/ server.luau client.luau
+luau-check check src/ --json
 
 # format files in place
-luau-lens format src/
+luau-check format src/
 
 # write default selene.toml + .luaurc into a project
-luau-lens init
+luau-check init
 
 # verify toolchain
-luau-lens doctor
+luau-check doctor
 
 # static security audit of Roblox Luau (heuristic, leads not verdicts)
-luau-lens audit src/
+luau-check audit src/
 ```
 
 `check` exits non-zero if any error is found, and prints nothing on a clean
@@ -43,7 +43,7 @@ tree, so hooks and agents can treat it as a gate.
 
 ## Agent usage
 
-luau-lens is deliberately harness-agnostic. The CLI is the contract. Per-agent
+luau-check is deliberately harness-agnostic. The CLI is the contract. Per-agent
 wiring (AGENTS.md snippet, Claude Code plugin, cursor rules) is built on top.
 
 Example AGENTS.md snippet for Codex:
@@ -51,26 +51,26 @@ Example AGENTS.md snippet for Codex:
 ```md
 ## Luau checks
 
-Use `luau-lens check <path>` to type-check and lint Luau before declaring work
-complete. `luau-lens check` exits non-zero when errors exist. Run it on edited
+Use `luau-check check <path>` to type-check and lint Luau before declaring work
+complete. `luau-check check` exits non-zero when errors exist. Run it on edited
 files and on the whole project before finishing a task.
 ```
 
 ### Install into harnesses
 
 ```bash
-luau-lens install-agent
+luau-check install-agent
 ```
 
-This auto-detects installed harnesses and wires luau-lens in:
+This auto-detects installed harnesses and wires luau-check in:
 
 - **Codex**: writes a `PostToolUse` hook into `~/.codex/hooks.json` (a managed
   file, never touches your `config.toml`). After a Write/Edit of a `.luau`,
-  it runs `luau-lens check --json` on the edited file and injects the errors
+  it runs `luau-check check --json` on the edited file and injects the errors
   into codex's context as advisory feedback. Clean writes are silent.
 - **Claude Code**: installs a skills-directory plugin at
-  `~/.claude/skills/luau-lens/`, auto-discovered on next session as
-  `luau-lens@skills-dir`. Same PostToolUse behavior via a bundled hook,
+  `~/.claude/skills/luau-check/`, auto-discovered on next session as
+  `luau-check@skills-dir`. Same PostToolUse behavior via a bundled hook,
   `additionalContext` fed back only on errors.
 - **Cursor / Pi**: the CLI works today from any harness that can run shell
   commands; first-class adapters are planned.
@@ -96,7 +96,7 @@ Code appends `/v1/messages` itself, so `https://host/v1` becomes a double
 
 ## Audit
 
-`luau-lens audit` is a static heuristic scanner for the exploiter patterns
+`luau-check audit` is a static heuristic scanner for the exploiter patterns
 that show up in AI-generated Roblox games: client-trusted remotes, missing
 server validation, over-broad DataStore writes. It returns leads for review,
 not security guarantees. Clean output means "no obvious pattern," not "secure."

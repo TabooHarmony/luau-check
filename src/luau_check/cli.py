@@ -1,14 +1,14 @@
-"""CLI entry point for luau-lens v2.
+"""CLI entry point for luau-check v2.
 
 The v2 contract is a plain, fast, deterministic CLI that agents call through
 their own terminal. No MCP server, no always-on process, no LLM turn needed.
 
 Commands:
-    luau-lens check FILE|DIR ...   run luau-lsp + selene, print diagnostics
-    luau-lens format FILE ...      format files in place with stylua
-    luau-lens init                 write default selene/luaurc configs
-    luau-lens doctor               verify toolchain (default no-op happy path)
-    luau-lens install-agent        detect and register with installed harnesses
+    luau-check check FILE|DIR ...   run luau-lsp + selene, print diagnostics
+    luau-check format FILE ...      format files in place with stylua
+    luau-check init                 write default selene/luaurc configs
+    luau-check doctor               verify toolchain (default no-op happy path)
+    luau-check install-agent        detect and register with installed harnesses
 """
 
 from __future__ import annotations
@@ -154,7 +154,7 @@ def _cmd_install_agent(args: argparse.Namespace) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        prog="luau-lens",
+        prog="luau-check",
         description="Luau diagnostics for AI coding agents (luau-lsp + selene + stylua).",
     )
     sub = parser.add_subparsers(dest="command", required=True)

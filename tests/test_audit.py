@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from luau_lens.audit import audit_file, audit_project
+from luau_check.audit import audit_file, audit_project
 
 
 def _write(tmp_path: Path, name: str, content: str) -> Path:

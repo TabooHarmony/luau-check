@@ -1,7 +1,7 @@
-"""Toolchain bootstrap for luau-lens v2.
+"""Toolchain bootstrap for luau-check v2.
 
 Downloads luau-lsp, selene, stylua, and Roblox type definitions on first run
-into ~/.luau-lens/, with retry on failure. The v2 CLI calls this lazily when
+into ~/.luau-check/, with retry on failure. The v2 CLI calls this lazily when
 a command needs the toolchain; the happy path stays silent so agent output
 stays clean.
 """
@@ -19,7 +19,7 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
-CACHE_DIR = Path.home() / ".luau-lens"
+CACHE_DIR = Path.home() / ".luau-check"
 BIN_DIR = CACHE_DIR / "bin"
 DEFS_DIR = CACHE_DIR / "defs"
 CONFIG_DIR = CACHE_DIR / "config"
@@ -88,7 +88,7 @@ def _exe(name: str) -> str:
 # ---------------------------------------------------------------------------
 
 def _download(url: str, dest: Path, timeout: int = 60) -> None:
-    req = urllib.request.Request(url, headers={"User-Agent": "luau-lens/bootstrap"})
+    req = urllib.request.Request(url, headers={"User-Agent": "luau-check/bootstrap"})
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         with open(dest, "wb") as f:
             while True:
@@ -202,11 +202,11 @@ def ensure_tools() -> None:
             _download_and_extract_zip(urls["luau-lsp"], BIN_DIR)
         except Exception as e:
             _last_error = f"Failed to download luau-lsp: {e}"
-            print(f"[luau-lens] ERROR: {_last_error}", file=sys.stderr)
+            print(f"[luau-check] ERROR: {_last_error}", file=sys.stderr)
             return
         if not luau_lsp_path.exists():
             _last_error = "luau-lsp binary not found after extraction"
-            print(f"[luau-lens] ERROR: {_last_error}", file=sys.stderr)
+            print(f"[luau-check] ERROR: {_last_error}", file=sys.stderr)
             return
 
     selene_path = BIN_DIR / _exe("selene")
@@ -214,20 +214,20 @@ def ensure_tools() -> None:
         try:
             _download_and_extract_zip(urls["selene"], BIN_DIR)
         except Exception as e:
-            print(f"[luau-lens] WARNING: selene download failed: {e}, linting skipped", file=sys.stderr)
+            print(f"[luau-check] WARNING: selene download failed: {e}, linting skipped", file=sys.stderr)
         else:
             if not selene_path.exists():
-                print("[luau-lens] WARNING: selene binary missing, linting skipped", file=sys.stderr)
+                print("[luau-check] WARNING: selene binary missing, linting skipped", file=sys.stderr)
 
     stylua_path = BIN_DIR / _exe("stylua")
     if not stylua_path.exists():
         try:
             _download_and_extract_zip(urls["stylua"], BIN_DIR)
         except Exception as e:
-            print(f"[luau-lens] WARNING: stylua download failed: {e}, formatting skipped", file=sys.stderr)
+            print(f"[luau-check] WARNING: stylua download failed: {e}, formatting skipped", file=sys.stderr)
         else:
             if not stylua_path.exists():
-                print("[luau-lens] WARNING: stylua binary missing, formatting skipped", file=sys.stderr)
+                print("[luau-check] WARNING: stylua binary missing, formatting skipped", file=sys.stderr)
 
     defs_path = DEFS_DIR / DEFS_FILENAME
     need_defs = not defs_path.exists()
@@ -235,23 +235,23 @@ def ensure_tools() -> None:
         age = time.time() - defs_path.stat().st_mtime
         if age > DEFS_MAX_AGE:
             need_defs = True
-            print("[luau-lens] refreshing Roblox type definitions (stale)...", file=sys.stderr)
+            print("[luau-check] refreshing Roblox type definitions (stale)...", file=sys.stderr)
     if need_defs:
         try:
             _download_file(DEFS_URL, defs_path)
         except Exception as e:
             _last_error = f"Failed to download type definitions: {e}"
-            print(f"[luau-lens] ERROR: {_last_error}", file=sys.stderr)
+            print(f"[luau-check] ERROR: {_last_error}", file=sys.stderr)
             return
 
     _write_configs()
 
     os_name, arch = _get_platform()
     if os_name == "linux" and arch == "arm64" and selene_path.exists():
-        print("[luau-lens] WARNING: selene has no native Linux arm64 build; linting may not work", file=sys.stderr)
+        print("[luau-check] WARNING: selene has no native Linux arm64 build; linting may not work", file=sys.stderr)
 
     _ready = True
-    print("[luau-lens] ready", file=sys.stderr)
+    print("[luau-check] ready", file=sys.stderr)
 
 
 def get_paths() -> dict[str, Path]:
@@ -274,24 +274,24 @@ def has_stylua() -> bool:
 
 
 def install_cli_binary(dest_dir: Path) -> Path | None:
-    """Install the luau-lens CLI as a standalone executable.
+    """Install the luau-check CLI as a standalone executable.
 
-    Ships a launcher script that re-runs the installed luau-lens package.
+    Ships a launcher script that re-runs the installed luau-check package.
     Used by agent adapters so the agent can invoke the tool even when the
     package isn't on PATH. Returns the launcher path.
     """
     dest_dir.mkdir(parents=True, exist_ok=True)
-    launcher = dest_dir / (_exe("luau-lens"))
+    launcher = dest_dir / (_exe("luau-check"))
     if launcher.exists():
         return launcher
     # Locate this package's console script if installed (uvx/pipx style)
-    # Fallback: write a launcher that invokes `python -m luau_lens.cli`.
+    # Fallback: write a launcher that invokes `python -m luau_check.cli`.
     here = Path(__file__).resolve().parent
     launcher.write_text(
         "#!/usr/bin/env python3\n"
         "import sys\n"
         f"sys.path.insert(0, {str(here.parent)!r})\n"
-        "from luau_lens.cli import main\n"
+        "from luau_check.cli import main\n"
         "sys.exit(main())\n",
         encoding="utf-8",
     )

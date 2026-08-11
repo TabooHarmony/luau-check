@@ -1,6 +1,6 @@
-"""Shared diagnostic model and parsers for luau-lens output.
+"""Shared diagnostic model and parsers for luau-check output.
 
-Same parsing logic as luau-lens v1 (proven against real luau-lsp and selene
+Same parsing logic as luau-check v1 (proven against real luau-lsp and selene
 output), kept dependency-free so every harness can consume it.
 """
 

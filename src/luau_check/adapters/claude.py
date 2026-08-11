@@ -1,4 +1,4 @@
-"""Claude Code adapter for luau-lens.
+"""Claude Code adapter for luau-check.
 
 Mechanism (verified against code.claude.com hooks + plugins-reference):
 - Claude Code loads "skills-directory plugins" from `~/.claude/skills/<name>/`
@@ -14,12 +14,12 @@ Mechanism (verified against code.claude.com hooks + plugins-reference):
   context. Clean output (no JSON) means no feedback. Advisory, non-blocking.
 - `${CLAUDE_PLUGIN_ROOT}` resolves to the plugin install dir, so hook commands
   reference the bundled script relatively. The script itself calls the
-  absolute luau-lens path (venv or installed), because claude hook processes
+  absolute luau-check path (venv or installed), because claude hook processes
   have their own env.
 
 Install strategy:
-  1. Create `~/.claude/skills/luau-lens/` with plugin.json, hooks/hooks.json,
-     and scripts/luau-lens-hook.sh.
+  1. Create `~/.claude/skills/luau-check/` with plugin.json, hooks/hooks.json,
+     and scripts/luau-check-hook.sh.
   2. Never touch user CLAUDE.md or user-level hook config. The plugin is fully
      self-contained and discovered in place.
   3. Idempotent: re-install overwrites the plugin folder contents; uninstall
@@ -35,7 +35,7 @@ from pathlib import Path
 
 from ..version import __version__
 
-PLUGIN_NAME = "luau-lens"
+PLUGIN_NAME = "luau-check"
 SKILLS_ROOT = Path.home() / ".claude" / "skills"
 PLUGIN_DIR = SKILLS_ROOT / PLUGIN_NAME
 HOOK_MATCHER = r"Write|Edit"
@@ -51,26 +51,26 @@ def plugin_dir() -> Path:
     return PLUGIN_DIR
 
 
-def _luau_lens_command() -> str:
-    """Absolute path to the luau-lens CLI."""
+def _luau_check_command() -> str:
+    """Absolute path to the luau-check CLI."""
     import shutil
-    found = shutil.which("luau-lens")
+    found = shutil.which("luau-check")
     if found and os.path.isabs(found):
         return found
     import sys
-    return f"{sys.executable} -m luau_lens.cli"
+    return f"{sys.executable} -m luau_check.cli"
 
 
-def hook_script_content(luau_lens_cmd: str) -> str:
-    """Bash hook script. Reads claude hook JSON on stdin, runs luau-lens on the
+def hook_script_content(luau_check_cmd: str) -> str:
+    """Bash hook script. Reads claude hook JSON on stdin, runs luau-check on the
     edited file, emits additionalContext only when there are errors."""
     return f'''#!/usr/bin/env bash
-# luau-lens claude hook (v{__version__})
-# PostToolUse hook: runs luau-lens on the file the agent just wrote.
+# luau-check claude hook (v{__version__})
+# PostToolUse hook: runs luau-check on the file the agent just wrote.
 # Emits additionalContext ONLY when there are errors. Clean => silent.
 set -uo pipefail
 
-LUAU_LENS="{luau_lens_cmd}"
+LUAU_LENS="{luau_check_cmd}"
 
 input="$(cat)"
 tool_name="$(printf '%s' "$input" | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get("tool_name",""))' 2>/dev/null || true)"
@@ -105,7 +105,7 @@ for x in diags:
     if x.get("severity")=="error":
         lines.append(f"{{x[\"file\"]}}:{{x[\"line\"]}}:{{x[\"column\"]}}: {{x[\"code\"]}} {{x[\"message\"]}}")
 if not lines: sys.exit(0)
-print("luau-lens diagnostics (errors):")
+print("luau-check diagnostics (errors):")
 print("\\n".join(lines))
 ' 2>/dev/null || true)"
   if [ -n "$ctx" ]; then
@@ -135,12 +135,12 @@ def hooks_json_content(script_rel: str) -> dict:
     }
 
 
-def install_plugin(luau_lens_cmd: str | None = None) -> Path:
-    """Write the complete plugin tree into ~/.claude/skills/luau-lens/.
+def install_plugin(luau_check_cmd: str | None = None) -> Path:
+    """Write the complete plugin tree into ~/.claude/skills/luau-check/.
 
     Returns the plugin dir. Idempotent (overwrites the plugin's own files).
     """
-    luau_lens_cmd = luau_lens_cmd or _luau_lens_command()
+    luau_check_cmd = luau_check_cmd or _luau_check_command()
     plugin_dir = PLUGIN_DIR
     dot_plugin = plugin_dir / ".claude-plugin"
     hooks_dir = plugin_dir / "hooks"
@@ -154,12 +154,12 @@ def install_plugin(luau_lens_cmd: str | None = None) -> Path:
         json.dumps(PLUGIN_JSON, indent=2) + "\n", encoding="utf-8"
     )
 
-    script = scripts_dir / "luau-lens-hook.sh"
-    script.write_text(hook_script_content(luau_lens_cmd), encoding="utf-8")
+    script = scripts_dir / "luau-check-hook.sh"
+    script.write_text(hook_script_content(luau_check_cmd), encoding="utf-8")
     script.chmod(script.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
     (hooks_dir / "hooks.json").write_text(
-        json.dumps(hooks_json_content("scripts/luau-lens-hook.sh"), indent=2) + "\n",
+        json.dumps(hooks_json_content("scripts/luau-check-hook.sh"), indent=2) + "\n",
         encoding="utf-8",
     )
 
