@@ -78,6 +78,22 @@ This auto-detects installed harnesses and wires luau-lens in:
 `install-agent` never edits your AGENTS.md, CLAUDE.md, or config files. It
 prints the recommended AGENTS.md snippet for you to add yourself.
 
+### Claude Code without an Anthropic subscription
+
+Claude Code can run against any Anthropic-Messages-compatible endpoint via
+`ANTHROPIC_BASE_URL` + `ANTHROPIC_AUTH_TOKEN`; no login required. If your
+LLM provider speaks the Messages API (e.g. many OpenAI-compatible proxies
+also expose `/v1/messages`), point it there:
+
+```bash
+# scripts/claude-charm.sh in this repo (Charm Hyper example)
+source scripts/claude-charm.sh && claude
+```
+
+Note: set `ANTHROPIC_BASE_URL` to the host root, not the `/v1` path. Claude
+Code appends `/v1/messages` itself, so `https://host/v1` becomes a double
+`/v1/v1` and fails.
+
 ## Audit
 
 `luau-lens audit` is a static heuristic scanner for the exploiter patterns
