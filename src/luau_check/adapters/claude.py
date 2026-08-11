@@ -76,7 +76,14 @@ LUAU_LENS="{luau_check_cmd}"
 # is not on PATH; run_check() handles both forms without eval.
 run_check() {{
   if [[ "$LUAU_LENS" == *" -m "* ]]; then
-    $LUAU_LENS "$@"
+    # split the generated "<python> -m luau_check.cli" string into argv tokens,
+    # save them, restore positional params, then call with the check args.
+    # Safe: the split string is generated and contains no user input.
+    local cmd1 cmd2 cmd3
+    set -- $LUAU_LENS
+    cmd1="$1"; cmd2="$2"; cmd3="$3"
+    shift 3
+    "$cmd1" "$cmd2" "$cmd3" "$@"
   else
     "$LUAU_LENS" "$@"
   fi
@@ -102,9 +109,9 @@ case "$tool_input" in
   *) exit 0 ;;
 esac
 
-# Run the check; emit additionalContext only when there are errors
+# Run the check; emit additionalContext only when there are diagnostics
 out="$(run_check check --json "$tool_input" 2>/dev/null)"
-summary="$(printf '%s' "$out" | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get("summary",{{}}).get("errors",0))' 2>/dev/null || echo 0)"
+summary="$(printf '%s' "$out" | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get("summary",{{}}).get("total",0))' 2>/dev/null || echo 0)"
 if [ "$summary" -gt 0 ]; then
   ctx="$(printf '%s' "$out" | python3 -c '
 import sys,json
@@ -112,10 +119,11 @@ d=json.load(sys.stdin)
 diags=d.get("diagnostics",[])
 lines=[]
 for x in diags:
-    if x.get("severity")=="error":
-        lines.append(f"{{x[\"file\"]}}:{{x[\"line\"]}}:{{x[\"column\"]}}: {{x[\"code\"]}} {{x[\"message\"]}}")
+    sev=x.get("severity","")
+    if sev in ("error","warning"):
+        lines.append(f"{{x[\"file\"]}}:{{x[\"line\"]}}:{{x[\"column\"]}}: [{{sev.upper()}}] {{x[\"code\"]}} {{x[\"message\"]}}")
 if not lines: sys.exit(0)
-print("luau-check diagnostics (errors):")
+print("luau-check diagnostics:")
 print("\\n".join(lines))
 ' 2>/dev/null || true)"
   if [ -n "$ctx" ]; then

@@ -55,7 +55,11 @@ def _cmd_check(args: argparse.Namespace) -> int:
                 pass
             print(f"{rel}:{d['line']}:{d['column']}: {d['severity'].upper()} [{d['source']}/{d['code']}] {d['message']}")
         print(f"summary: {summary['errors']} errors, {summary['warnings']} warnings, {summary['total']} total")
-    return 1 if summary.get("errors", 0) > 0 else 0
+    if summary.get("errors", 0) > 0:
+        return 1
+    if getattr(args, "warnings", False) and summary.get("warnings", 0) > 0:
+        return 1
+    return 0
 
 
 def _cmd_format(args: argparse.Namespace) -> int:
@@ -191,6 +195,7 @@ def main(argv: list[str] | None = None) -> int:
     p_check = sub.add_parser("check", help="type-check and lint files or a directory")
     p_check.add_argument("paths", nargs="*")
     p_check.add_argument("--json", action="store_true", help="emit JSON")
+    p_check.add_argument("--warnings", action="store_true", help="exit non-zero if warnings are present (strict gate)")
     p_check.add_argument("--cwd", default=".")
 
     p_fmt = sub.add_parser("format", help="format files in place")

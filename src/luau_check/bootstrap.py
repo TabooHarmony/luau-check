@@ -89,13 +89,22 @@ def _exe(name: str) -> str:
 
 def _download(url: str, dest: Path, timeout: int = 60) -> None:
     req = urllib.request.Request(url, headers={"User-Agent": "luau-check/bootstrap"})
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        with open(dest, "wb") as f:
-            while True:
-                chunk = resp.read(65536)
-                if not chunk:
-                    break
-                f.write(chunk)
+    # Download to a temp sibling, then atomically rename into place so a
+    # truncated/interrupted write can never sit at the live path.
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dest.with_name(dest.name + f".tmp-{os.getpid()}")
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            with open(tmp, "wb") as f:
+                while True:
+                    chunk = resp.read(65536)
+                    if not chunk:
+                        break
+                    f.write(chunk)
+        os.replace(tmp, dest)
+    except Exception:
+        tmp.unlink(missing_ok=True)
+        raise
 
 
 def _download_and_extract_zip(url: str, dest_dir: Path) -> None:
@@ -230,8 +239,11 @@ def ensure_tools() -> None:
                 print("[luau-check] WARNING: stylua binary missing, formatting skipped", file=sys.stderr)
 
     defs_path = DEFS_DIR / DEFS_FILENAME
-    need_defs = not defs_path.exists()
-    if defs_path.exists():
+    # A zero-length/undersized file (e.g. from an old interrupted write) is
+    # treated as missing, never as a valid install.
+    defs_ok = defs_path.exists() and defs_path.stat().st_size > 0
+    need_defs = not defs_ok
+    if defs_ok:
         age = time.time() - defs_path.stat().st_mtime
         if age > DEFS_MAX_AGE:
             need_defs = True
@@ -239,6 +251,8 @@ def ensure_tools() -> None:
     if need_defs:
         try:
             _download_file(DEFS_URL, defs_path)
+            if not defs_path.exists() or defs_path.stat().st_size == 0:
+                raise RuntimeError("downloaded type definitions are empty")
         except Exception as e:
             _last_error = f"Failed to download type definitions: {e}"
             print(f"[luau-check] ERROR: {_last_error}", file=sys.stderr)
