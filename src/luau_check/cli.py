@@ -116,6 +116,9 @@ def _cmd_audit(args: argparse.Namespace) -> int:
 def _cmd_install_agent(args: argparse.Namespace) -> int:
     from .adapters import claude as claude_adapter
     from .adapters import codex as codex_adapter
+    from .adapters import cursor as cursor_adapter
+    from .adapters import ohmpi as pi_adapter
+    from .adapters import opencode as opencode_adapter
 
     results: list[str] = []
 
@@ -138,6 +141,32 @@ def _cmd_install_agent(args: argparse.Namespace) -> int:
             results.append("claude-code: note: `claude` CLI not found on PATH; plugin will load when Claude Code runs")
     except Exception as e:  # noqa: BLE001
         results.append(f"claude-code: FAILED ({e})")
+
+    # Cursor adapter (user-level hooks.json)
+    try:
+        launcher = cursor_adapter.write_launcher(cursor_adapter.launcher_path())
+        hooks_updated = cursor_adapter.install_hooks(launcher)
+        results.append(f"cursor: {'installed' if hooks_updated else 'already installed'} (hook: {launcher})")
+    except Exception as e:  # noqa: BLE001
+        results.append(f"cursor: FAILED ({e})")
+
+    # OpenCode adapter (TS plugin, v1+v2 compatible)
+    try:
+        was_installed = opencode_adapter.is_installed()
+        path = opencode_adapter.install_plugin()
+        state = "already installed" if was_installed else "installed"
+        results.append(f"opencode: {state} (plugin: {path})")
+    except Exception as e:  # noqa: BLE001
+        results.append(f"opencode: FAILED ({e})")
+
+    # Pi / Oh-My-Pi adapter (TS extension)
+    try:
+        was_installed = pi_adapter.is_installed()
+        path = pi_adapter.install_extension()
+        state = "already installed" if was_installed else "installed"
+        results.append(f"pi/oh-my-pi: {state} (extension: {path})")
+    except Exception as e:  # noqa: BLE001
+        results.append(f"pi/oh-my-pi: FAILED ({e})")
 
     for line in results:
         print(line)
