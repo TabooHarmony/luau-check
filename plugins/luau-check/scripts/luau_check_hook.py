@@ -141,7 +141,14 @@ def _download_and_extract_zip(url: str, dest_dir: Path) -> None:
             # Reject zip-slip (members escaping the target dir) outright.
             for info in zf.infolist():
                 name = info.filename
-                if name.startswith(("/", "\\\\")) or ".." in Path(name).parts:
+                # Reject zip-slip outright: absolute members, `..` traversal,
+                # and backslash separators (zip spec uses `/`; a `\` member
+                # name is either a Windows path-escape attempt or malformed).
+                if (
+                    name.startswith(("/", "\\\\"))
+                    or ".." in Path(name).parts
+                    or "\\" in name
+                ):
                     raise ValueError(f"unsafe zip member: {name!r}")
             zf.extractall(stage)
         if not stage.exists():
@@ -480,9 +487,10 @@ def _hook_event_file(event: dict) -> str | None:
         def _is_luau(p: str) -> bool:
             return p.endswith((".luau", ".lua"))
 
-        # 1. shell write redirections: `> path` / `>> path`, optionally quoted.
-        #    Exclude `2>` (stderr) and any other fd redirects.
-        for m in re.finditer(r"(?<![0-9&])(?:>>|>)\s*('(?:[^']*)'|\"(?:[^\"]*)\"|\S+)", cmd):
+        # 1. shell write redirections: `> path` / `>> path` / `>| path`, optionally
+        #    quoted. Exclude fd-number redirections (`2> err`, `1> out`) but
+        #    KEEP all-stream `&>` (writes stdout+stderr to the target).
+        for m in re.finditer(r"(?<![0-9])(?:>>|>\||>)\s*('(?:[^']*)'|\"(?:[^\"]*)\"|\S+)", cmd):
             raw = m.group(1)
             if raw.startswith(("'", '"')) and len(raw) >= 2:
                 p = raw[1:-1]
@@ -491,8 +499,12 @@ def _hook_event_file(event: dict) -> str | None:
             if _is_luau(p):
                 return p
         # 2. sed -i ... path (in-place edit): the guard is mandatory BEFORE the
-        #    path; a bare `.lua` token elsewhere is a read, not a write.
-        for m in re.finditer(r"\bsed\s+-i(?:\S*)\s+[^;|&]*?([^\s;|&]+\.(?:luau|lua))\b", cmd):
+        #    path; skip the sed script/flag tokens so `'s/foo.lua/bar/'` is not
+        #    mistaken for the target; a bare `.lua` token elsewhere is a read.
+        for m in re.finditer(
+            r"\bsed\s+-i(?:\S*)\s+(?:(?:'[^']*'|\"[^\"]*\"|s/.*?/[^/]*/[a-z]*)\s+)*([^\s;|&]+\.(?:luau|lua))\b",
+            cmd,
+        ):
             p = m.group(1).strip("'\"")
             if p and _is_luau(p):
                 return p

@@ -8,7 +8,6 @@ Commands:
     luau-check format FILE ...      format files in place with stylua
     luau-check init                 write default selene/luaurc configs
     luau-check doctor               verify toolchain (default no-op happy path)
-    luau-check doctor               verify toolchain (default no-op happy path)
 
 Distribution is plugin-first: install the plugin for Claude Code or Codex
 from the luau-check marketplace (see README). The CLI remains the engine

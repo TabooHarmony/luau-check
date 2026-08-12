@@ -311,6 +311,16 @@ def test_engine_hook_bash_stderr_redirect_silent(fake_toolchain, tmp_path):
     assert r.stdout.strip() == "", "2> stderr redirect must be silent"
 
 
+def test_engine_hook_bash_allstream_and_noclobber(fake_toolchain, tmp_path):
+    """&> (all-stream) and >| (noclobber force) writes MUST fire (N1/N2
+    regressions)."""
+    f = _write_sample(tmp_path, "bad.luau", "local x: number = 's'\n")
+    r1 = _run_hook(fake_toolchain, {"tool_name": "Bash", "tool_input": {"command": f"somecmd &> {f}"}})
+    assert r1.stdout.strip() != "", "&> all-stream write should fire"
+    r2 = _run_hook(fake_toolchain, {"tool_name": "Bash", "tool_input": {"command": f"somecmd >| {f}"}})
+    assert r2.stdout.strip() != "", ">| noclobber-force write should fire"
+
+
 def test_engine_hook_bash_lua_read_only_silent(fake_toolchain, tmp_path):
     """Read-only .lua tokens (cat/head/git diff) must NOT fire (F2 regression)."""
     f = _write_sample(tmp_path, "clean.lua", "local x: number = 's'\n")
