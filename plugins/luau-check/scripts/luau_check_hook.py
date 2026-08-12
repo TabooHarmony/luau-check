@@ -324,6 +324,24 @@ def _run(cmd: list[str], cwd: str | None = None, timeout: int = 60) -> tuple[str
         return "", f"Binary not found: {cmd[0]}", -1
 
 
+def _ensure_utf8(filepath: str) -> tuple[str, str | None]:
+    """Return (path_to_check, temp_to_cleanup). If the file is UTF-16 (BOM
+    sniff), write a UTF-8 transcode to a temp file next to it so the native
+    tools (luau-lsp/selene/stylua) can parse it. PowerShell's Set-Content
+    writes UTF-16LE by default, so Windows-checked files are often UTF-16."""
+    with open(filepath, "rb") as f:
+        head = f.read(4)
+    if head.startswith(b"\xff\xfe") or head.startswith(b"\xfe\xff"):
+        data = open(filepath, "rb").read()
+        enc = "utf-16-le" if head.startswith(b"\xff\xfe") else "utf-16-be"
+        text = data.decode(enc, errors="replace").lstrip("\ufeff")
+        tmp = filepath + ".lc-utf8"
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(text)
+        return tmp, tmp
+    return filepath, None
+
+
 def check_file(filepath: str) -> list[dict]:
     """Run all three tools on one file, return merged diagnostics with
     absolute paths. A broken toolchain surfaces as an InternalError diagnostic
@@ -342,6 +360,10 @@ def check_file(filepath: str) -> list[dict]:
     project_root = os.path.dirname(filepath)
     all_diags: list[dict] = []
 
+    # Transcode UTF-16 sources so the native tools can consume them.
+    check_target, tmp_target = _ensure_utf8(filepath)
+    check_target = check_target or filepath
+
     if not luau_lsp.exists() or not defs.exists():
         all_diags.append({
             "file": filepath, "line": 1, "column": 1, "code": "InternalError",
@@ -354,7 +376,7 @@ def check_file(filepath: str) -> list[dict]:
     cmd = [
         str(luau_lsp), "analyze", "--platform", "roblox", "--formatter", "plain",
         f"--definitions=@roblox={defs}", f"--base-luaurc={project_luaurc or base_luaurc}",
-        filepath,
+        check_target,
     ]
     stdout, stderr, code = _run(cmd, timeout=60)
     if (code == -1 and not stdout) or (code != 0 and not stdout.strip()):
@@ -369,7 +391,7 @@ def check_file(filepath: str) -> list[dict]:
     if selene.exists():
         project_selene = _find_config(project_root, ("selene.toml", "selene.yml"))
         cmd = [str(selene), "--display-style", "json", "--no-summary",
-               f"--config={project_selene or base_selene}", filepath]
+               f"--config={project_selene or base_selene}", check_target]
         stdout2, stderr2, code2 = _run(cmd, timeout=60)
         if (code2 == -1 and not stdout2) or (code2 != 0 and not stdout2.strip()):
             all_diags.append({
@@ -385,7 +407,7 @@ def check_file(filepath: str) -> list[dict]:
         project_stylua = _find_config(project_root, (".stylua.toml", "stylua.toml"))
         if project_stylua:
             cmd.append(f"--config-path={project_stylua}")
-        cmd.append(filepath)
+        cmd.append(check_target)
         stdout3, stderr3, code3 = _run(cmd, timeout=30)
         if code3 != 0:
             if code3 == -1 and not stdout3:
@@ -410,6 +432,11 @@ def check_file(filepath: str) -> list[dict]:
         if not os.path.isabs(d["file"]):
             d["file"] = os.path.abspath(os.path.join(project_root, d["file"]))
         result.append(d)
+    if tmp_target:
+        try:
+            os.unlink(tmp_target)
+        except OSError:
+            pass
     return _merge(result)
 
 

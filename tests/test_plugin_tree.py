@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -98,8 +99,9 @@ def test_hooks_json_references_existing_script():
     # command uses ${CLAUDE_PLUGIN_ROOT} (set by both codex and claude)
     assert "${CLAUDE_PLUGIN_ROOT}" in cmd
     # referenced script exists in the plugin
-    ref = cmd.split('"/', 1)[1].rstrip('"') if '"/' in cmd else ""
-    assert ref, f"could not parse script path from {cmd}"
+    m = re.match(r'^"(\$\{CLAUDE_PLUGIN_ROOT\}/[^"]+)"$', cmd)
+    assert m, f"hook command must be a single quoted path, got {cmd}"
+    ref = m.group(1).replace("${CLAUDE_PLUGIN_ROOT}/", "", 1)
     assert (PLUGIN_DIR / ref).exists(), f"hooks.json references missing {ref}"
 
 

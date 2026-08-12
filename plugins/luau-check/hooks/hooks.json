@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/luau-check-hook",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/luau-check-hook\"",
             "timeout": 60
           }
         ]
