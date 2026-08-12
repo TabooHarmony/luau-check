@@ -7,7 +7,7 @@
           {
             "type": "command",
             "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/luau-check-hook.sh",
-            "timeout": 30
+            "timeout": 60
           }
         ]
       }

@@ -288,6 +288,70 @@ def test_engine_hook_bash_append_and_sed(fake_toolchain, tmp_path):
     assert r2.stdout.strip() != "", "sed -i should produce diagnostics"
 
 
+def test_engine_hook_bash_quoted_spaced_path(fake_toolchain, tmp_path):
+    """Quoted paths containing spaces (printf > \"my file.luau\") must fire."""
+    d = tmp_path / "with space"
+    d.mkdir()
+    f = d / "bad.luau"
+    f.write_text("local x: number = 's'\n", encoding="utf-8")
+    r = _run_hook(fake_toolchain, {"tool_name": "Bash", "tool_input": {"command": f"printf 'x' > \"{f}\""}})
+    assert r.returncode == 0
+    out = json.loads(r.stdout)
+    assert "luau-check diagnostics" in out["hookSpecificOutput"]["additionalContext"]
+    # single-quoted variant too
+    r2 = _run_hook(fake_toolchain, {"tool_name": "Bash", "tool_input": {"command": f"printf 'x' > '{f}'"}})
+    assert r2.stdout.strip() != "", "single-quoted path should fire"
+
+
+def test_engine_hook_bash_stderr_redirect_silent(fake_toolchain, tmp_path):
+    """2> (stderr) redirection must NOT be treated as a write, even if the
+    stderr target is a .luau file that exists."""
+    f = _write_sample(tmp_path, "err.luau", "local x: number = 1\n")
+    r = _run_hook(fake_toolchain, {"tool_name": "Bash", "tool_input": {"command": f"ls > /dev/null 2> {f}"}})
+    assert r.stdout.strip() == "", "2> stderr redirect must be silent"
+
+
+def test_engine_hook_bash_lua_read_only_silent(fake_toolchain, tmp_path):
+    """Read-only .lua tokens (cat/head/git diff) must NOT fire (F2 regression)."""
+    f = _write_sample(tmp_path, "clean.lua", "local x: number = 's'\n")
+    for cmd in (f"cat {f}", f"head -5 {f}", f"git diff {f}"):
+        r = _run_hook(fake_toolchain, {"tool_name": "Bash", "tool_input": {"command": cmd}})
+        assert r.stdout.strip() == "", f"read-only {cmd!r} must be silent"
+
+
+def test_engine_hook_bash_sed_lua_guarded(fake_toolchain, tmp_path):
+    """sed -i fires for .lua too, but a bare .lua token without sed guard is
+    not a write."""
+    f = _write_sample(tmp_path, "bad.lua", "local x: number = 's'\n")
+    r = _run_hook(fake_toolchain, {"tool_name": "Bash", "tool_input": {"command": f"sed -i 's/a/b/' {f}"}})
+    assert r.stdout.strip() != "", "sed -i on .lua should fire"
+    r2 = _run_hook(fake_toolchain, {"tool_name": "Bash", "tool_input": {"command": f"echo hi {f}"}})
+    assert r2.stdout.strip() == "", "bare .lua token must be silent"
+
+
+def test_engine_bootstrap_failure_reports_internal_error(tmp_path):
+    """F1 regression: a broken/offline toolchain must surface an InternalError
+    diagnostic, NEVER a silent 'clean'."""
+    home = tmp_path / "empty-home"
+    home.mkdir()
+    f = tmp_path / "bad.luau"
+    f.write_text("local x: number = 's'\n", encoding="utf-8")
+    env = {**os.environ, "HOME": str(home), "PYTHON": sys.executable,
+           "LUAU_CHECK_HOME": str(home / ".luau-check"),
+           # block all network so bootstrap fails deterministically
+           "https_proxy": "http://127.0.0.1:9", "http_proxy": "http://127.0.0.1:9"}
+    r = subprocess.run(
+        [sys.executable, str(ENGINE)],
+        input=json.dumps({"tool_name": "Write", "tool_input": {"file_path": str(f)}}),
+        capture_output=True, text=True, env=env, timeout=60,
+    )
+    assert r.returncode == 0
+    out = json.loads(r.stdout)
+    ctx = out["hookSpecificOutput"]["additionalContext"]
+    assert "InternalError" in ctx, f"expected InternalError, got: {ctx!r}"
+    assert "toolchain" in ctx
+
+
 def test_engine_hook_bash_read_only_silent(fake_toolchain, tmp_path):
     """cat/read-only Bash commands on .luau files must stay silent."""
     f = _write_sample(tmp_path, "bad.luau", "local x: number = 's'\n")

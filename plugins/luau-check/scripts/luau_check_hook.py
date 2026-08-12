@@ -40,7 +40,7 @@ PLUGIN_VERSION = "3.0.0"
 # Toolchain (mirror of luau_check.bootstrap)
 # ---------------------------------------------------------------------------
 
-CACHE_DIR = Path.home() / ".luau-check"
+CACHE_DIR = Path(os.environ.get("LUAU_CHECK_HOME", Path.home() / ".luau-check"))
 BIN_DIR = CACHE_DIR / "bin"
 DEFS_DIR = CACHE_DIR / "defs"
 CONFIG_DIR = CACHE_DIR / "config"
@@ -96,18 +96,28 @@ def _exe(name: str) -> str:
     return f"{name}.exe" if platform.system() == "Windows" else name
 
 
-def _download(url: str, dest: Path, timeout: int = 60) -> None:
+def _download(url: str, dest: Path, timeout: int = 60, min_size: int = 1024) -> None:
+    """Download URL to dest atomically (tmp + os.replace).
+
+    min_size is a cheap integrity sanity check: a successful download smaller
+    than min_size bytes is treated as a failure (error page / empty body),
+    since real tool binaries and defs are always >1KB.
+    """
     req = urllib.request.Request(url, headers={"User-Agent": "luau-check/plugin"})
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_name(dest.name + f".tmp-{os.getpid()}")
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             with open(tmp, "wb") as f:
+                size = 0
                 while True:
                     chunk = resp.read(65536)
                     if not chunk:
                         break
                     f.write(chunk)
+                    size += len(chunk)
+        if size < min_size:
+            raise ValueError(f"download too small ({size} bytes < {min_size})")
         os.replace(tmp, dest)
     except Exception:
         tmp.unlink(missing_ok=True)
@@ -115,19 +125,42 @@ def _download(url: str, dest: Path, timeout: int = 60) -> None:
 
 
 def _download_and_extract_zip(url: str, dest_dir: Path) -> None:
+    """Download a zip and extract it atomically into dest_dir.
+
+    Extraction goes into a temp sibling dir first, then entries are moved into
+    dest_dir, so a crash or concurrent second caller never sees a half-written
+    tree. Individual file moves are atomic on the same filesystem.
+    """
     dest_dir.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tmp:
         tmp_path = Path(tmp.name)
+    stage = dest_dir.parent / f".stage-{dest_dir.name}-{os.getpid()}"
     try:
         _download(url, tmp_path)
         with zipfile.ZipFile(tmp_path) as zf:
-            zf.extractall(dest_dir)
+            # Reject zip-slip (members escaping the target dir) outright.
+            for info in zf.infolist():
+                name = info.filename
+                if name.startswith(("/", "\\\\")) or ".." in Path(name).parts:
+                    raise ValueError(f"unsafe zip member: {name!r}")
+            zf.extractall(stage)
+        if not stage.exists():
+            stage.mkdir(parents=True)
+        for p in stage.iterdir():
+            target = dest_dir / p.name
+            if target.exists():
+                if target.is_dir():
+                    shutil.rmtree(target)
+                else:
+                    target.unlink()
+            os.replace(p, target)
         if platform.system() != "Windows":
             for p in dest_dir.iterdir():
                 if p.is_file() and not p.suffix:
                     p.chmod(p.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
     finally:
         tmp_path.unlink(missing_ok=True)
+        shutil.rmtree(stage, ignore_errors=True)
 
 
 def ensure_tools() -> bool:
@@ -176,10 +209,10 @@ def ensure_tools() -> bool:
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     selene_toml = CONFIG_DIR / "selene.toml"
     if not selene_toml.exists():
-        selene_toml.write_text('std = "roblox"\n')
+        selene_toml.write_text('std = "roblox"\n', encoding="utf-8")
     luaurc = CONFIG_DIR / ".luaurc"
     if not luaurc.exists():
-        luaurc.write_text('{\n  "languageMode": "strict"\n}\n')
+        luaurc.write_text('{\n  "languageMode": "strict"\n}\n', encoding="utf-8")
     return True
 
 
@@ -288,8 +321,9 @@ def check_file(filepath: str) -> list[dict]:
     """Run all three tools on one file, return merged diagnostics with
     absolute paths. A broken toolchain surfaces as an InternalError diagnostic
     (never silently 'clean')."""
-    if not ensure_tools():
-        return []
+    ensure_tools()
+    # NOTE: no early return on ensure_tools() failure. If luau-lsp/defs are
+    # missing, the InternalError branch below reports it instead of hiding it.
 
     luau_lsp = BIN_DIR / _exe("luau-lsp")
     selene = BIN_DIR / _exe("selene")
@@ -414,6 +448,13 @@ def _result(diags: list[dict]) -> dict:
 # ---------------------------------------------------------------------------
 
 def _hook_event_file(event: dict) -> str | None:
+    """Extract the written Luau file from a harness hook event.
+
+    Claude: Write|Edit|MultiEdit carry tool_input.file_path.
+    Codex:  writes arrive as Bash commands. Only shell write-redirections
+            (`> path`, `>> path`, `sed -i ... path`) count; stderr
+            redirections (`2>`) and read-only commands are NOT writes.
+    """
     tool_name = event.get("tool_name", "")
     ti = event.get("tool_input") or {}
     if isinstance(ti, str):
@@ -435,17 +476,26 @@ def _hook_event_file(event: dict) -> str | None:
         cmd = ti.get("command")
         if not isinstance(cmd, str):
             return None
-        # write-target candidates: `> path` / `>> path` redirections
-        for m in re.finditer(r"(?:>>?|2>)\s*([^\s;&|]+)", cmd):
+
+        def _is_luau(p: str) -> bool:
+            return p.endswith((".luau", ".lua"))
+
+        # 1. shell write redirections: `> path` / `>> path`, optionally quoted.
+        #    Exclude `2>` (stderr) and any other fd redirects.
+        for m in re.finditer(r"(?<![0-9&])(?:>>|>)\s*('(?:[^']*)'|\"(?:[^\"]*)\"|\S+)", cmd):
+            raw = m.group(1)
+            if raw.startswith(("'", '"')) and len(raw) >= 2:
+                p = raw[1:-1]
+            else:
+                p = raw
+            if _is_luau(p):
+                return p
+        # 2. sed -i ... path (in-place edit): the guard is mandatory BEFORE the
+        #    path; a bare `.lua` token elsewhere is a read, not a write.
+        for m in re.finditer(r"\bsed\s+-i(?:\S*)\s+[^;|&]*?([^\s;|&]+\.(?:luau|lua))\b", cmd):
             p = m.group(1).strip("'\"")
-            if p.endswith((".luau", ".lua")):
+            if p and _is_luau(p):
                 return p
-        # sed -i ... path (in-place edit)
-        for m in re.finditer(r"\bsed\s+-i(?:\S*)\s+.*?\s+([^\s;&|]+\.luau)|([^\s;&|]+\.lua)\b", cmd):
-            p = (m.group(1) or m.group(2) or "").strip("'\"")
-            if p:
-                return p
-        # apply_patch style: paths mentioned with -/+ hunks are edits; avoid reads
         return None
 
     return None
