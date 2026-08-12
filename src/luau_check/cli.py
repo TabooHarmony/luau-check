@@ -8,7 +8,11 @@ Commands:
     luau-check format FILE ...      format files in place with stylua
     luau-check init                 write default selene/luaurc configs
     luau-check doctor               verify toolchain (default no-op happy path)
-    luau-check install-agent        detect and register with installed harnesses
+    luau-check doctor               verify toolchain (default no-op happy path)
+
+Distribution is plugin-first: install the plugin for Claude Code or Codex
+from the luau-check marketplace (see README). The CLI remains the engine
+for on-demand checks.
 """
 
 from __future__ import annotations
@@ -117,74 +121,6 @@ def _cmd_audit(args: argparse.Namespace) -> int:
     return 0
 
 
-def _cmd_install_agent(args: argparse.Namespace) -> int:
-    from .adapters import claude as claude_adapter
-    from .adapters import codex as codex_adapter
-    from .adapters import cursor as cursor_adapter
-    from .adapters import ohmpi as pi_adapter
-    from .adapters import opencode as opencode_adapter
-
-    results: list[str] = []
-
-    # Codex adapter
-    try:
-        launcher = codex_adapter.write_launcher(codex_adapter.launcher_path())
-        hooks_updated = codex_adapter.install_hooks(launcher)
-        results.append(f"codex: {'installed' if hooks_updated else 'already installed'} (hook: {launcher})")
-    except Exception as e:  # noqa: BLE001
-        results.append(f"codex: FAILED ({e})")
-
-    # Claude Code adapter (plugin, skills-dir auto-discovery)
-    try:
-        claude_available = claude_adapter.claude_cli_available()
-        was_installed = claude_adapter.is_installed()
-        plugin_dir = claude_adapter.install_plugin()
-        state = "already installed" if was_installed else "installed"
-        results.append(f"claude-code: {state} (plugin: {plugin_dir})")
-        if not claude_available:
-            results.append("claude-code: note: `claude` CLI not found on PATH; plugin will load when Claude Code runs")
-    except Exception as e:  # noqa: BLE001
-        results.append(f"claude-code: FAILED ({e})")
-
-    # Cursor adapter (user-level hooks.json)
-    try:
-        launcher = cursor_adapter.write_launcher(cursor_adapter.launcher_path())
-        hooks_updated = cursor_adapter.install_hooks(launcher)
-        results.append(f"cursor: {'installed' if hooks_updated else 'already installed'} (hook: {launcher})")
-    except Exception as e:  # noqa: BLE001
-        results.append(f"cursor: FAILED ({e})")
-
-    # OpenCode adapter (TS plugin, v1+v2 compatible)
-    try:
-        was_installed = opencode_adapter.is_installed()
-        path = opencode_adapter.install_plugin()
-        state = "already installed" if was_installed else "installed"
-        results.append(f"opencode: {state} (plugin: {path})")
-    except Exception as e:  # noqa: BLE001
-        results.append(f"opencode: FAILED ({e})")
-
-    # Pi / Oh-My-Pi adapter (TS extension)
-    try:
-        was_installed = pi_adapter.is_installed()
-        path = pi_adapter.install_extension()
-        state = "already installed" if was_installed else "installed"
-        results.append(f"pi/oh-my-pi: {state} (extension: {path})")
-    except Exception as e:  # noqa: BLE001
-        results.append(f"pi/oh-my-pi: FAILED ({e})")
-
-    for line in results:
-        print(line)
-
-    # Print (never write) the AGENTS.md snippet so the user keeps ownership
-    if any("FAILED" not in r for r in results):
-        print()
-        print("Add this to your project AGENTS.md so the agent also checks via CLI:")
-        print()
-        print(codex_adapter.agents_md_snippet().rstrip())
-
-    return 0 if all("FAILED" not in r for r in results) else 1
-
-
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="luau-check",
@@ -210,8 +146,6 @@ def main(argv: list[str] | None = None) -> int:
     p_audit.add_argument("dir", default=".")
     p_audit.add_argument("--json", action="store_true")
 
-    sub.add_parser("install-agent", help="register with installed harnesses (auto-detect)")
-
     args = parser.parse_args(argv)
     if args.command == "check":
         return _cmd_check(args)
@@ -223,8 +157,6 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_doctor(args)
     if args.command == "audit":
         return _cmd_audit(args)
-    if args.command == "install-agent":
-        return _cmd_install_agent(args)
     if args.command == "version":
         print(__version__)
         return 0

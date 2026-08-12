@@ -1,7 +1,7 @@
 [project]
 name = "luau-check"
-version = "2.0.0"
-description = "Automatic Luau diagnostics for AI coding agents. CLI for on-demand checks, hooks for instant feedback (luau-lsp + selene + stylua, zero config)."
+version = "3.0.0"
+description = "Automatic Luau diagnostics for AI coding agents. Plugin for Claude Code and Codex (luau-lsp + selene + stylua, zero config)."
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.11"
@@ -9,8 +9,6 @@ dependencies = []
 
 [project.scripts]
 luau-check = "luau_check.cli:main"
-# backwards-compat alias for the old name
-luau-lens = "luau_check.cli:main"
 
 [build-system]
 requires = ["hatchling"]

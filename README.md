@@ -2,71 +2,85 @@
 
 Luau type checking and linting for AI coding agents.
 
-A CLI that wraps [luau-lsp] (type checking), [selene] (linting), and
-[StyLua] (formatting). Run it on your Luau code and it reports errors and
-warnings without touching your files.
+A plugin for Claude Code and Codex that runs after every Write/Edit on
+`.luau`/`.lua` files and feeds errors and warnings back as context. It wraps
+[luau-lsp] (type checking), [selene] (linting), and [StyLua] (formatting),
+with zero configuration.
+
+> **Plugin-first.** luau-check ships as a plugin for the two harnesses that
+> matter: Claude Code and Codex. The toolchain is downloaded once on first
+> use into `~/.luau-check/`. No CLI install, no config files to edit.
 
 ## Install
 
+### Claude Code
+
 ```bash
-pip install luau-check
-# or: uv tool install luau-check
+/plugin marketplace add TabooHarmony/luau-check
+/plugin install luau-check
 ```
 
-First run downloads luau-lsp, selene, StyLua, and the Roblox type definitions
-into `~/.luau-check/`. Nothing else to configure.
-
-Until the package makes it to PyPI:
+Or from the CLI:
 
 ```bash
-pip install git+https://github.com/TabooHarmony/luau-check.git
+claude plugin marketplace add TabooHarmony/luau-check
+claude plugin install luau-check
 ```
 
-## Usage
+### Codex
 
 ```bash
-# type-check and lint files or a directory
+codex plugin marketplace add TabooHarmony/luau-check
+codex plugin add luau-check@luau-check
+```
+
+(You can also install from the Plugins Directory in the ChatGPT desktop app.)
+
+That's it. The plugin loads its skill and its post-edit hook automatically.
+Clean edits stay silent; errors and warnings come back as context for the
+agent to fix.
+
+## What you get
+
+- **Post-edit diagnostics**: after each Write/Edit on a Luau file, luau-check
+  type-checks, lints, and checks formatting, and feeds findings back to the
+  agent as advisory context. It never blocks work.
+- **A skill**: the bundled `luau-check` skill tells the agent to verify Luau
+  code before declaring work complete, with or without the hook.
+- **A minimal CLI inside the plugin**: `luau-check check` remains the engine
+  for on-demand checks, scripts, and CI.
+
+## Manual check (optional)
+
+If you have the CLI installed (`pip install luau-check`), the agent can also
+check on demand:
+
+```bash
 luau-check check src/
-
-# same, as JSON (for scripts and hooks)
-luau-check check src/ --json
-
-# format files in place
-luau-check format src/
-
-# write default selene.toml and .luaurc into a project
-luau-check init
-
-# verify the toolchain
-luau-check doctor
-
-# static security scan (heuristic, leads not guarantees)
-luau-check audit src/
+luau-check check --warnings src/   # strict gate, fails on warnings too
 ```
 
 `check` prints nothing when the code is clean and exits non-zero when errors
-are found, so it works as a gate in scripts and agent workflows. Add
-`--warnings` to also fail on warnings.
-
-## Coding agents
-
-Any agent that can run a shell command can call `luau-check` directly. To
-have checks run automatically after each edit:
-
-```bash
-luau-check install-agent
-```
-
-This adds hooks for the agents it finds installed: Codex, Claude Code,
-Cursor, OpenCode, and Pi. The hooks are advisory, so they never block work.
-`install-agent` only writes hook/extension files for those agents, never your
-project files.
+are found, so it works as a gate in scripts and agent workflows.
 
 ## Configuration
 
-`check` finds the nearest `.luaurc`, `selene.toml`, and `.stylua.toml` by
-walking up from the checked paths, and falls back to built-in defaults. It
-never modifies your files.
+Checks find the nearest `.luaurc`, `selene.toml`, and `.stylua.toml` by
+walking up from the checked paths, and fall back to built-in defaults
+(strict mode, Roblox standard). Your files are never modified.
+
+## How it works
+
+- The repository is the marketplace: `.claude-plugin/marketplace.json` and
+  `.agents/plugins/marketplace.json` both point at `plugins/luau-check/`.
+- `plugins/luau-check/` is a self-contained plugin: it declares the same
+  manifest for both harnesses (`.claude-plugin/plugin.json` and
+  `.codex-plugin/plugin.json`), one `hooks/hooks.json`, one hook script, and
+  one skill. Both harnesses set `CLAUDE_PLUGIN_ROOT`, so the same hook works
+  everywhere.
+- The hook is a dependency-free Python script (stdlib only). It shares the
+  `~/.luau-check` toolchain cache with the CLI and never requires a pip
+  install to function.
 
 ## Development
 
@@ -95,3 +109,7 @@ dumps.
 ## License
 
 MIT
+
+[luau-lsp]: https://github.com/JohnnyMorganz/luau-lsp
+[selene]: https://github.com/Kampfkarren/selene
+[StyLua]: https://github.com/JohnnyMorganz/StyLua

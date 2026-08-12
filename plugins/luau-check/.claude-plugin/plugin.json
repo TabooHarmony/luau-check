@@ -1,0 +1,8 @@
+{
+  "name": "luau-check",
+  "description": "Luau diagnostics for AI coding agents (luau-lsp + selene + stylua). Runs after Write/Edit and feeds errors back as advisory context.",
+  "version": "3.0.0",
+  "author": {
+    "name": "TabooHarmony"
+  }
+}
