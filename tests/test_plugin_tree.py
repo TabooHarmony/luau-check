@@ -96,13 +96,31 @@ def test_hooks_json_references_existing_script():
     assert "Write|Edit" in group.get("matcher", "")
     hook = group["hooks"][0]
     cmd = hook["command"]
-    # command uses ${CLAUDE_PLUGIN_ROOT} (set by both codex and claude)
+    # POSIX command uses ${CLAUDE_PLUGIN_ROOT} (set by both codex and claude)
+    # and points at the extensionless .sh (bash shebang).
     assert "${CLAUDE_PLUGIN_ROOT}" in cmd
-    # referenced script exists in the plugin
     m = re.match(r'^"(\$\{CLAUDE_PLUGIN_ROOT\}/[^"]+)"$', cmd)
     assert m, f"hook command must be a single quoted path, got {cmd}"
     ref = m.group(1).replace("${CLAUDE_PLUGIN_ROOT}/", "", 1)
     assert (PLUGIN_DIR / ref).exists(), f"hooks.json references missing {ref}"
+
+    # Windows command (codex 0.147's command_windows, used verbatim on win32)
+    # MUST be a literal absolute-style path with BACKSLASHES and the .cmd
+    # extension, inside one pair of quotes. The forward-slash/extensionless
+    # forms break under `cmd /C ""...""` (see skill reference).
+    cw = hook.get("command_windows") or hook.get("commandWindows")
+    assert cw, "hooks.json must ship command_windows for Windows"
+    mw = re.match(r'^"(\$\{CLAUDE_PLUGIN_ROOT\}\\[^"]+\.cmd)"$', cw)
+    assert mw, f"command_windows must be a quoted backslash .cmd path, got {cw}"
+    refw = mw.group(1).replace("${CLAUDE_PLUGIN_ROOT}\\", "", 1)
+    refw_native = Path(*refw.split("\\"))
+    assert (PLUGIN_DIR / refw_native).exists(), f"command_windows references missing {refw}"
+    assert "/" not in refw, "command_windows path must use backslashes only"
+    # the .cmd wrapper must not rely on %~dp0 concatenation (breaks under
+    # nested `cmd /C ""...""`)
+    cmd_src = (PLUGIN_DIR / refw_native).read_text(encoding="utf-8")
+    assert "%SCRIPT_DIR%" not in cmd_src, "cmd wrapper must not use SCRIPT_DIR concat"
+    assert 'pushd "%~dp0"' not in cmd_src, "cmd wrapper must not use pushd %~dp0"
 
 
 def test_hook_script_executable_on_posix():

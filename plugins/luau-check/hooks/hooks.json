@@ -2,11 +2,13 @@
   "hooks": {
     "PostToolUse": [
       {
-        "matcher": "Bash|Write|Edit",
+        "matcher": "Bash|Write|Edit|PowerShell|shell_command",
         "hooks": [
           {
             "type": "command",
             "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/luau-check-hook\"",
+            "command_windows": "\"${CLAUDE_PLUGIN_ROOT}\\scripts\\luau-check-hook.cmd\"",
+            "commandWindows": "\"${CLAUDE_PLUGIN_ROOT}\\scripts\\luau-check-hook.cmd\"",
             "timeout": 60
           }
         ]
