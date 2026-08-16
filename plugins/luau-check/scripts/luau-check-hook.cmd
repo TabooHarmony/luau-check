@@ -1,5 +1,5 @@
 @echo off
-rem luau-check hook launcher for Windows (v3.0.1)
+rem luau-check hook launcher for Windows (v3.0.0)
 rem Harnesses on Windows run hooks via cmd; codex 0.147 executes plugin hooks
 rem as `cmd /C ""<command_windows>""` and pre-expands ${CLAUDE_PLUGIN_ROOT}.
 rem The extensionless/${CLAUDE_PLUGIN_ROOT}/forward-slash and %~dp0%/pushd
