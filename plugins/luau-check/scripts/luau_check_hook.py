@@ -712,6 +712,15 @@ def materialize_mirror(payload: dict, mirror_dir: Path) -> Path:
     """
     mirror_dir.mkdir(parents=True, exist_ok=True)
     sources = payload.get("sources") or {}
+    # Luau's JSONEncode writes an EMPTY table as [] (no array/dict
+    # distinction), so an empty sources map arrives as a list. Non-empty
+    # maps arrive as a dict. Normalize both to {rel: source}.
+    if isinstance(sources, list):
+        norm: dict[str, str] = {}
+        for item in sources:
+            if isinstance(item, list) and len(item) >= 2 and isinstance(item[0], str) and isinstance(item[1], str):
+                norm[item[0]] = item[1]
+        sources = norm
     if isinstance(sources, dict):
         for rel, content in sources.items():
             if not isinstance(rel, str) or not isinstance(content, str):

@@ -29,6 +29,10 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 PLUGIN_DIR = REPO_ROOT / "plugins" / "luau-check"
 ENGINE = PLUGIN_DIR / "scripts" / "luau_check_hook.py"
 
+# Import the engine module directly for unit-level helpers (stdlib-only).
+sys.path.insert(0, str(PLUGIN_DIR / "scripts"))
+import luau_check_hook as engine  # noqa: E402
+
 PLUGIN_FILES = [
     ".claude-plugin/plugin.json",
     ".codex-plugin/plugin.json",
@@ -482,6 +486,34 @@ exit 0
     ctx = out["hookSpecificOutput"]["additionalContext"]
     assert "mirrored Studio tree" in ctx
     assert "TypeError" in ctx
+
+
+def test_engine_mirror_empty_sources_list(fake_toolchain, tmp_path):
+    """Luau's JSONEncode turns an empty sources table into [] (not {}). The
+    engine must normalize a list-shaped sources (empty or pairs) to a dict
+    and still materialize the tree + sourcemap."""
+    mirror_dir = tmp_path / "mirror"
+    payload = {
+        "sources": [],  # Luau empty-table encoding
+        "tree": {
+            "name": "place", "className": "DataModel",
+            "children": [
+                {"name": "ServerScriptService", "className": "ServerScriptService",
+                 "children": [{"name": "Utils", "className": "ModuleScript",
+                               "filePaths": ["ServerScriptService/Utils.luau"]}]}
+            ],
+        },
+    }
+    sm = engine.materialize_mirror(payload, mirror_dir)
+    assert sm.exists()
+    sm_data = json.loads(sm.read_text())
+    assert sm_data["className"] == "DataModel"
+    assert sm_data["children"][0]["name"] == "ServerScriptService"
+    # list-of-pairs shape also normalizes
+    payload2 = {"sources": [["ServerScriptService/Utils.luau", "return 1"]], "tree": payload["tree"]}
+    sm2 = engine.materialize_mirror(payload2, mirror_dir)
+    assert (mirror_dir / "ServerScriptService" / "Utils.luau").exists()
+    assert (mirror_dir / "ServerScriptService" / "Utils.luau").read_text() == "return 1"
 
 
 def test_engine_check_clean_ok(fake_toolchain, tmp_path):
