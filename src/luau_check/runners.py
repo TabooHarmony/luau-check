@@ -7,6 +7,7 @@ prints nothing on clean output (hooks/agents rely on exit code + silence).
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import tempfile
 from pathlib import Path
@@ -95,9 +96,15 @@ def _find_sourcemap(start_dir: str) -> str | None:
     return None
 
 
+def _is_abs_like(p: str) -> bool:
+    """os.path.isabs, plus Windows drive-letter paths (c:/proj/...) which
+    POSIX hosts see as relative but are absolute to a Windows workspace."""
+    return os.path.isabs(p) or bool(re.match(r"^[A-Za-z]:[\\/]", p))
+
+
 def _normalize_paths(diagnostics: list[Diagnostic], base_dir: str) -> None:
     for d in diagnostics:
-        if not os.path.isabs(d.file):
+        if not _is_abs_like(d.file):
             d.file = os.path.normpath(os.path.join(base_dir, d.file))
 
 
@@ -266,7 +273,7 @@ def check_files(targets: list[str], cwd: str = ".") -> dict:
         selene_results = run_selene(f, project_root=project_root)
         stylua_results = run_stylua_check(f, project_root=project_root)
         for d in luau_results + selene_results + stylua_results:
-            if not os.path.isabs(d.file):
+            if not _is_abs_like(d.file):
                 # luau-lsp may have run from the sourcemap dir (cwd changed),
                 # so relative output paths resolve against that dir.
                 sm = _find_sourcemap(project_root)

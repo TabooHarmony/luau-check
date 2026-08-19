@@ -545,6 +545,9 @@ def _hook_event_file(event: dict) -> str | None:
     Codex:  writes arrive as Bash commands. Only shell write-redirections
             (`> path`, `>> path`, `sed -i ... path`) count; stderr
             redirections (`2>`) and read-only commands are NOT writes.
+    MCP:    Studio-bridge tools (edit_script, execute_luau, update_script)
+            edit scripts that exist only in Studio; the mirror plugin
+            materializes them, and the hook routes to mirror mode.
     """
     tool_name = event.get("tool_name", "")
     ti = event.get("tool_input") or {}
@@ -555,6 +558,11 @@ def _hook_event_file(event: dict) -> str | None:
             ti = {}
     if not isinstance(ti, dict):
         return None
+
+    # MCP Studio-bridge tools: no local file; signal mirror mode with a
+    # sentinel so run_hook checks the mirrored tree instead.
+    if re.search(r"^(edit_script|update_script|execute_luau|set_script_source)$", tool_name):
+        return "__MCP_MIRROR__"
 
     # Claude tools: file path is a first-class field.
     if not tool_name or re.search(r"^(Write|Edit|MultiEdit)$", tool_name):
@@ -603,7 +611,28 @@ def run_hook() -> int:
     except json.JSONDecodeError:
         return 0
     filepath = _hook_event_file(event)
-    if not filepath or not filepath.endswith((".luau", ".lua")):
+    if not filepath:
+        return 0
+    if filepath == "__MCP_MIRROR__":
+        # Studio-bridge MCP edit: check the mirrored tree (materialized by
+        # the mirror plugin from Studio). Clean => silent.
+        result = _mirror_check(check_all=True)
+        diags = [d for d in result.get("diagnostics", []) if d["severity"] in ("error", "warning")]
+        if not diags:
+            return 0  # clean => silent, the documented contract
+        lines = [
+            f"{d['file']}:{d['line']}:{d['column']}: [{d['severity'].upper()}] {d['code']} {d['message']}"
+            for d in diags
+        ]
+        ctx = "luau-check diagnostics (mirrored Studio tree):\n" + "\n".join(lines)
+        print(json.dumps({
+            "hookSpecificOutput": {
+                "hookEventName": "PostToolUse",
+                "additionalContext": ctx,
+            }
+        }))
+        return 0
+    if not filepath.endswith((".luau", ".lua")):
         return 0
     if not os.path.isfile(filepath):
         return 0
@@ -624,6 +653,152 @@ def run_hook() -> int:
         }
     }))
     return 0
+
+
+# ---------------------------------------------------------------------------
+# Mirror mode (Studio plugin bridge)
+# ---------------------------------------------------------------------------
+
+def _find_studio_settings() -> str | None:
+    """Locate the Roblox Studio plugin settings.json.
+
+    Local plugins write to %LOCALAPPDATA%/Roblox/<UserId>/InstalledPlugins/0/
+    settings.json. We glob for it under LOCALAPPDATA (Windows) or the
+    equivalent on other OSes (unlikely; Studio is Windows-only).
+    """
+    base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~\\AppData\\Local")
+    roblox_dir = Path(base) / "Roblox"
+    if not roblox_dir.exists():
+        return None
+    # settings.json lives under Roblox/<UserId>/InstalledPlugins/0/settings.json
+    for user_dir in roblox_dir.iterdir():
+        if not user_dir.is_dir():
+            continue
+        cand = user_dir / "InstalledPlugins" / "0" / "settings.json"
+        if cand.exists():
+            return str(cand)
+    return None
+
+
+def _read_mirror_payload(settings_path: str) -> dict | None:
+    """Read the luau-check mirror payload from the plugin settings.json.
+
+    The plugin stores one JSON string under the key 'luau-check-mirror-v1'.
+    The settings.json itself is a JSON map of key -> value; the value is a
+    JSON-encoded string containing {sources: {rel: source}, tree: {...}}.
+    """
+    try:
+        with open(settings_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return None
+    blob = data.get("luau-check-mirror-v1")
+    if not isinstance(blob, str):
+        return None
+    try:
+        payload = json.loads(blob)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, dict) or "sources" not in payload:
+        return None
+    return payload
+
+
+def materialize_mirror(payload: dict, mirror_dir: Path) -> Path:
+    """Write the mirror payload's sources + sourcemap into mirror_dir.
+
+    Returns the path to the generated sourcemap.json. Files are written
+    atomically (tmp + rename). The sourcemap is the flat rojo format.
+    """
+    mirror_dir.mkdir(parents=True, exist_ok=True)
+    sources = payload.get("sources") or {}
+    if isinstance(sources, dict):
+        for rel, content in sources.items():
+            if not isinstance(rel, str) or not isinstance(content, str):
+                continue
+            # guard against path traversal from the payload
+            target = (mirror_dir / rel).resolve()
+            if not str(target).startswith(str(mirror_dir.resolve())):
+                continue
+            target.parent.mkdir(parents=True, exist_ok=True)
+            tmp = target.with_name(target.name + ".tmp")
+            tmp.write_text(content, encoding="utf-8")
+            os.replace(tmp, target)
+    tree = payload.get("tree")
+    if isinstance(tree, dict):
+        sm = {
+            "name": tree.get("name", "place"),
+            "className": "DataModel",
+            "children": tree.get("children", []),
+        }
+        sm_path = mirror_dir / "sourcemap.json"
+        tmp = sm_path.with_name(sm_path.name + ".tmp")
+        tmp.write_text(json.dumps(sm), encoding="utf-8")
+        os.replace(tmp, sm_path)
+    return mirror_dir / "sourcemap.json"
+
+
+def _mirror_check(check_all: bool = True) -> dict:
+    """Materialize the Studio plugin payload and check the mirrored files.
+
+    Returns the diagnostics dict. Missing settings/payload => empty result
+    with a note (never 'clean' silently when the plugin isn't present).
+    """
+    settings = _find_studio_settings()
+    if not settings:
+        return {"diagnostics": [], "summary": {"errors": 0, "warnings": 0, "total": 0},
+                "note": "no Studio settings.json found (is the Studio plugin installed and running?)"}
+    payload = _read_mirror_payload(settings)
+    if not payload:
+        return {"diagnostics": [], "summary": {"errors": 0, "warnings": 0, "total": 0},
+                "note": "no mirror payload in settings.json (is the Studio plugin running?)"}
+    mirror_dir = CACHE_DIR / "mirror"
+    materialize_mirror(payload, mirror_dir)
+
+    files: list[str] = []
+    if check_all:
+        for root, _, fs in os.walk(mirror_dir):
+            for f in fs:
+                if f.endswith((".luau", ".lua")):
+                    files.append(os.path.join(root, f))
+    else:
+        # most recently modified mirrored file
+        candidates: list[tuple[float, str]] = []
+        for root, _, fs in os.walk(mirror_dir):
+            for f in fs:
+                if f.endswith((".luau", ".lua")):
+                    p = os.path.join(root, f)
+                    candidates.append((os.path.getmtime(p), p))
+        if candidates:
+            candidates.sort(reverse=True)
+            files = [candidates[0][1]]
+    if not files:
+        return {"diagnostics": [], "summary": {"errors": 0, "warnings": 0, "total": 0}}
+    return check_paths(files, cwd=str(mirror_dir))
+
+
+def run_mirror(argv: list[str]) -> int:
+    """Mirror mode: materialize the Studio plugin payload and check.
+
+    Usage: mirror [--json] [--check-all]
+    - Without --check-all: checks the most recently modified mirrored file.
+    - With --check-all: checks every mirrored .luau/.lua file.
+    Returns 0 on clean, 1 on errors.
+    """
+    as_json = "--json" in argv
+    check_all = "--check-all" in argv
+    result = _mirror_check(check_all=check_all)
+    if as_json:
+        print(json.dumps(result, indent=2))
+    else:
+        for d in result["diagnostics"]:
+            print(f"{d['file']}:{d['line']}:{d['column']}: {d['severity'].upper()} [{d['source']}/{d['code']}] {d['message']}")
+        s = result["summary"]
+        if s["total"]:
+            print(f"summary: {s['errors']} errors, {s['warnings']} warnings, {s['total']} total")
+        if result.get("note"):
+            print(f"note: {result['note']}", file=sys.stderr)
+    return 1 if result["summary"]["errors"] > 0 else 0
 
 
 # ---------------------------------------------------------------------------
@@ -655,8 +830,10 @@ def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     if argv and argv[0] == "check":
         return run_cli(argv[1:])
+    if argv and argv[0] == "mirror":
+        return run_mirror(argv[1:])
     if argv and argv[0] in ("--help", "-h", "help"):
-        print("luau-check plugin engine: hook mode (stdin event) or 'check [--json] <paths>'")
+        print("luau-check plugin engine: hook mode (stdin event), 'check [--json] <paths>', or 'mirror [--json] [--check-all]'")
         return 0
     return run_hook()
 

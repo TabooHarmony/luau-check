@@ -373,6 +373,117 @@ exit 0
     assert (project / "sourcemap.json").exists()
 
 
+def test_engine_mirror_materializes_and_checks(fake_toolchain, tmp_path):
+    """mirror mode reads the Studio plugin settings.json payload, materializes
+    files + sourcemap into ~/.luau-check/mirror/, and checks them."""
+    # fake Studio settings.json with a luau-check mirror payload
+    local = tmp_path / "AppData" / "Local"
+    settings_dir = local / "Roblox" / "12345" / "InstalledPlugins" / "0"
+    settings_dir.mkdir(parents=True)
+    payload = {
+        "sources": {
+            "ServerScriptService/Utils.luau": "--!strict\nlocal Utils = {}\nfunction Utils.makePoint(x: number, y: number) return {x=x, y=y} end\nreturn Utils\n",
+            "ServerScriptService/Consumer.luau": "--!strict\nlocal S = game:GetService('ServerScriptService')\nlocal U = require(S.Utils)\nlocal p = U.makePoint('x', 'y')\nprint(p)\n",
+        },
+        "tree": {
+            "name": "test-place", "className": "DataModel",
+            "children": [{
+                "className": "ServerScriptService", "name": "ServerScriptService",
+                "children": [
+                    {"className": "ModuleScript", "name": "Utils", "filePaths": ["ServerScriptService/Utils.luau"]},
+                    {"className": "Script", "name": "Consumer", "filePaths": ["ServerScriptService/Consumer.luau"]},
+                ],
+            }],
+        },
+    }
+    settings = {"luau-check-mirror-v1": json.dumps(payload)}
+    (settings_dir / "settings.json").write_text(json.dumps(settings), encoding="utf-8")
+
+    # fake luau-lsp: emit cross-file error only when --sourcemap is passed
+    suffix = ".exe" if os.name == "nt" else ""
+    mirror_path = fake_toolchain / ".luau-check" / "mirror" / "ServerScriptService" / "Consumer.luau"
+    quoted = str(mirror_path).replace("\\", "\\\\")
+    _write_fake_bin(fake_toolchain / ".luau-check" / "bin", f"luau-lsp{suffix}", f"""#!/bin/sh
+has_sm=0
+for arg in "$@"; do
+  case "$arg" in
+    --sourcemap=*) has_sm=1;;
+  esac
+done
+if [ "$has_sm" = "1" ]; then
+  echo "{quoted} [game/ServerScriptService/Consumer]:8:27-29: (W0) TypeError: Expected this to be 'number', but got 'string'"
+fi
+exit 0
+""")
+
+    env = {**os.environ, "HOME": str(fake_toolchain), "PYTHON": sys.executable,
+           "LOCALAPPDATA": str(local)}
+    r = subprocess.run(
+        [sys.executable, str(ENGINE), "mirror", "--json", "--check-all"],
+        capture_output=True, text=True, env=env,
+    )
+    assert r.returncode == 1, f"expected cross-file error, stderr: {r.stderr}"
+    data = json.loads(r.stdout)
+    errors = [d for d in data["diagnostics"] if d["severity"] == "error"]
+    assert len(errors) == 1, f"expected 1 TypeError, got: {data['diagnostics']}"
+    assert errors[0]["code"] == "TypeError"
+    # files materialized into the mirror dir
+    assert (fake_toolchain / ".luau-check" / "mirror" / "sourcemap.json").exists()
+    assert (fake_toolchain / ".luau-check" / "mirror" / "ServerScriptService" / "Consumer.luau").exists()
+
+
+def test_engine_mcp_edit_routes_to_mirror(fake_toolchain, tmp_path):
+    """An MCP Studio-bridge edit tool (edit_script) routes to mirror mode and
+    emits the PostToolUse contract with mirrored-tree diagnostics."""
+    # fake Studio settings.json with a mirror payload containing a cross-file error
+    local = tmp_path / "AppData" / "Local"
+    settings_dir = local / "Roblox" / "12345" / "InstalledPlugins" / "0"
+    settings_dir.mkdir(parents=True)
+    payload = {
+        "sources": {
+            "ServerScriptService/Utils.luau": "--!strict\nlocal Utils = {}\nfunction Utils.makePoint(x: number, y: number) return {x=x, y=y} end\nreturn Utils\n",
+            "ServerScriptService/Consumer.luau": "--!strict\nlocal S = game:GetService('ServerScriptService')\nlocal U = require(S.Utils)\nlocal p = U.makePoint('x', 'y')\nprint(p)\n",
+        },
+        "tree": {
+            "name": "test-place", "className": "DataModel",
+            "children": [{
+                "className": "ServerScriptService", "name": "ServerScriptService",
+                "children": [
+                    {"className": "ModuleScript", "name": "Utils", "filePaths": ["ServerScriptService/Utils.luau"]},
+                    {"className": "Script", "name": "Consumer", "filePaths": ["ServerScriptService/Consumer.luau"]},
+                ],
+            }],
+        },
+    }
+    (settings_dir / "settings.json").write_text(json.dumps({"luau-check-mirror-v1": json.dumps(payload)}), encoding="utf-8")
+
+    suffix = ".exe" if os.name == "nt" else ""
+    mirror_path = fake_toolchain / ".luau-check" / "mirror" / "ServerScriptService" / "Consumer.luau"
+    quoted = str(mirror_path).replace("\\", "\\\\")
+    _write_fake_bin(fake_toolchain / ".luau-check" / "bin", f"luau-lsp{suffix}", f"""#!/bin/sh
+has_sm=0
+for arg in "$@"; do
+  case "$arg" in
+    --sourcemap=*) has_sm=1;;
+  esac
+done
+if [ "$has_sm" = "1" ]; then
+  echo "{quoted} [game/ServerScriptService/Consumer]:8:27-29: (W0) TypeError: Expected this to be 'number', but got 'string'"
+fi
+exit 0
+""")
+
+    env = {**os.environ, "HOME": str(fake_toolchain), "PYTHON": sys.executable,
+           "LOCALAPPDATA": str(local)}
+    r = _run_hook(fake_toolchain, {"tool_name": "edit_script", "tool_input": {"path": "ServerScriptService/Consumer"}}, env_extra={"LOCALAPPDATA": str(local)})
+    assert r.returncode == 0
+    out = json.loads(r.stdout)
+    assert out["hookSpecificOutput"]["hookEventName"] == "PostToolUse"
+    ctx = out["hookSpecificOutput"]["additionalContext"]
+    assert "mirrored Studio tree" in ctx
+    assert "TypeError" in ctx
+
+
 def test_engine_check_clean_ok(fake_toolchain, tmp_path):
     f = _write_sample(tmp_path, "clean.luau", "local x: number = 1\n")
     r = subprocess.run(
