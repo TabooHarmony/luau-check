@@ -62,6 +62,39 @@ def _find_stylua_toml(start_dir: str) -> str | None:
     return _find_config(start_dir, (".stylua.toml", "stylua.toml"))
 
 
+def _find_sourcemap(start_dir: str) -> str | None:
+    """Walk up from start_dir for a usable sourcemap.
+
+    Returns the path to a sourcemap.json if one exists (used as-is), or
+    generates one from a rojo default.project.json via `rojo sourcemap`
+    when rojo is installed. Returns None for per-file fallback mode.
+    """
+    import shutil
+
+    current = Path(start_dir).resolve()
+    while True:
+        sm = current / "sourcemap.json"
+        if sm.exists():
+            return str(sm)
+        proj = current / "default.project.json"
+        if proj.exists():
+            rojo = shutil.which("rojo")
+            if rojo:
+                try:
+                    out = subprocess.run(
+                        [rojo, "sourcemap", "--output", "sourcemap.json", str(proj)],
+                        capture_output=True, text=True, timeout=60, cwd=str(current),
+                    )
+                    if out.returncode == 0 and sm.exists():
+                        return str(sm)
+                except (subprocess.TimeoutExpired, FileNotFoundError):
+                    pass
+        if current.parent == current:
+            break
+        current = current.parent
+    return None
+
+
 def _normalize_paths(diagnostics: list[Diagnostic], base_dir: str) -> None:
     for d in diagnostics:
         if not os.path.isabs(d.file):
@@ -88,9 +121,14 @@ def run_luau_lsp(filepath: str, project_root: str | None = None,
     target_dir = project_root if project_root else os.path.dirname(filepath)
     project_luaurc = _find_luaurc(target_dir) if target_dir else None
     cmd.append(f"--base-luaurc={project_luaurc or luaurc}")
+    sourcemap = _find_sourcemap(target_dir) if target_dir else None
+    analyze_cwd = cwd
+    if sourcemap:
+        cmd.append(f"--sourcemap={sourcemap}")
+        analyze_cwd = os.path.dirname(sourcemap)
     cmd.append(filepath)
 
-    stdout, stderr, exit_code = _run(cmd, timeout=60, cwd=cwd)
+    stdout, stderr, exit_code = _run(cmd, timeout=60, cwd=analyze_cwd)
     if (exit_code == -1 and not stdout) or (exit_code != 0 and not stdout.strip()):
         # Missing binary (spawn error) OR tool ran but crashed with no output
         # (corrupted download). Both are toolchain failures, never "clean".
@@ -229,7 +267,11 @@ def check_files(targets: list[str], cwd: str = ".") -> dict:
         stylua_results = run_stylua_check(f, project_root=project_root)
         for d in luau_results + selene_results + stylua_results:
             if not os.path.isabs(d.file):
-                d.file = os.path.abspath(os.path.join(project_root, d.file))
+                # luau-lsp may have run from the sourcemap dir (cwd changed),
+                # so relative output paths resolve against that dir.
+                sm = _find_sourcemap(project_root)
+                base = os.path.dirname(sm) if sm else project_root
+                d.file = os.path.abspath(os.path.join(base, d.file))
         all_diags.extend(luau_results + selene_results + stylua_results)
 
     merged = merge_diagnostics(all_diags)

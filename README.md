@@ -34,6 +34,10 @@ That's it. The plugin loads its skill and its post-edit hook on its own.
 - Never blocks your work
 - Uses your existing `.luaurc`, `selene.toml`, and `.stylua.toml` if it finds
   them, so existing configs keep working
+- Resolves `require()`s across files when it finds a sourcemap (a
+  `sourcemap.json`, or a Rojo `default.project.json` it can generate one from),
+  so cross-file type errors are caught too. Without a sourcemap it falls back
+  to per-file checking.
 
 ## Credit
 

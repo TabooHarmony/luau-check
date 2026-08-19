@@ -32,6 +32,12 @@ _LUAU_LSP_RE = re.compile(
     r"^(?P<file>.+?):(?P<line>\d+):(?P<col>\d+)(?:-(?P<endcol>\d+))?"
     r":\s+\(W0\)\s+(?P<category>\w+):\s+(?P<message>.+)$"
 )
+# With --sourcemap, plain-formatter lines gain a virtual-instance path after
+# the file: `path [game/ServerScriptService/Utils]:8:27-29: (W0) TypeError: ...`
+_LUAU_LSP_SOURCEMAP_RE = re.compile(
+    r"^(?P<file>.+?) \[[^\]]+\]:(?P<line>\d+):(?P<col>\d+)(?:-(?P<endcol>\d+))?"
+    r":\s+\(W0\)\s+(?P<category>\w+):\s+(?P<message>.+)$"
+)
 
 _SKIP_PREFIXES = ("[INFO]", "[WARN]", "[DEBUG]", "WARNING:", "Analyzing")
 
@@ -44,7 +50,7 @@ def parse_luau_lsp(output: str, stderr: str = "") -> list[Diagnostic]:
             continue
         if any(line.startswith(p) for p in _SKIP_PREFIXES):
             continue
-        m = _LUAU_LSP_RE.match(line)
+        m = _LUAU_LSP_SOURCEMAP_RE.match(line) or _LUAU_LSP_RE.match(line)
         if not m:
             continue
         category = m.group("category")

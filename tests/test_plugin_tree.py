@@ -310,6 +310,69 @@ exit 0
     assert e["file"] == os.path.abspath(str(f)) or e["file"] == str(f)
 
 
+def test_engine_sourcemap_autogen_from_rojo_project(fake_toolchain, tmp_path):
+    """When only default.project.json exists (barebones rojo), the engine runs
+    `rojo sourcemap` to generate sourcemap.json, then uses it."""
+    project = tmp_path / "rojoproj"
+    f = _write_sample(project, "src/Server/Consumer.luau",
+                      "--!strict\nlocal S = game:GetService('ServerScriptService')\nlocal U = require(S.Utils)\nlocal p = U.makePoint('x','y')\nprint(p)\n")
+    (project / "default.project.json").write_text(json.dumps({
+        "name": "test", "tree": {"$className": "DataModel"},
+    }), encoding="utf-8")
+
+    suffix = ".exe" if os.name == "nt" else ""
+    # fake rojo: writes a real-looking sourcemap.json next to the project
+    _write_fake_bin(project, f"rojo{suffix}", f"""#!/bin/sh
+cat > "$(dirname "$1")/sourcemap.json" <<'EOF'
+{{
+  "name": "test",
+  "className": "DataModel",
+  "children": [
+    {{
+      "className": "ServerScriptService",
+      "name": "ServerScriptService",
+      "children": [
+        {{"className": "ModuleScript", "name": "Utils", "filePaths": ["src/Server/Utils.luau"]}},
+        {{"className": "Script", "name": "Consumer", "filePaths": ["src/Server/Consumer.luau"]}}
+      ]
+    }}
+  ]
+}}
+EOF
+exit 0
+""")
+    # fake luau-lsp: emit cross-file error only when --sourcemap is passed
+    quoted = str(f).replace("\\", "\\\\")
+    _write_fake_bin(fake_toolchain / ".luau-check" / "bin", f"luau-lsp{suffix}", f"""#!/bin/sh
+has_sm=0
+for arg in "$@"; do
+  case "$arg" in
+    --sourcemap=*) has_sm=1;;
+  esac
+done
+if [ "$has_sm" = "1" ]; then
+  echo "{quoted} [game/ServerScriptService/Consumer]:8:27-29: (W0) TypeError: Expected this to be 'number', but got 'string'"
+fi
+exit 0
+""")
+    # put fake rojo on PATH for the engine's shutil.which lookup
+    env = {**os.environ, "HOME": str(fake_toolchain), "PYTHON": sys.executable,
+           "PATH": str(project) + os.pathsep + os.environ.get("PATH", "")}
+    assert (project / f"rojo{suffix}").exists()
+
+    r = subprocess.run(
+        [sys.executable, str(ENGINE), "check", "--json", str(f)],
+        capture_output=True, text=True, env=env,
+    )
+    assert r.returncode == 1, f"expected cross-file error, got stderr: {r.stderr}"
+    data = json.loads(r.stdout)
+    errors = [d for d in data["diagnostics"] if d["severity"] == "error"]
+    assert len(errors) == 1, f"expected 1 cross-file TypeError, got: {data['diagnostics']}"
+    assert errors[0]["code"] == "TypeError"
+    # the engine generated sourcemap.json next to the project
+    assert (project / "sourcemap.json").exists()
+
+
 def test_engine_check_clean_ok(fake_toolchain, tmp_path):
     f = _write_sample(tmp_path, "clean.luau", "local x: number = 1\n")
     r = subprocess.run(
