@@ -227,6 +227,44 @@ def defs_url() -> str:
     return DEFS_URL
 
 
+def _find_sourcemap(project_root: str) -> str | None:
+    """Walk up from project_root for a usable sourcemap.
+
+    Returns the path to a sourcemap.json if one exists:
+    - an existing sourcemap.json is used as-is
+    - a default.project.json (rojo project) is turned into a sourcemap by
+      running rojo if installed
+    Returns None if neither is found (per-file fallback mode).
+
+    The sourcemap filePaths are relative to the sourcemap file's directory
+    (rojo emits paths relative to the project file), so callers must run
+    luau-lsp with cwd set to that directory.
+    """
+    current = Path(project_root).resolve()
+    while True:
+        sm = current / "sourcemap.json"
+        if sm.exists():
+            return str(sm)
+        proj = current / "default.project.json"
+        if proj.exists():
+            rojo = shutil.which("rojo")
+            if rojo:
+                try:
+                    out = subprocess.run(
+                        [rojo, "sourcemap", "--output", "sourcemap.json", str(proj)],
+                        capture_output=True, text=True, timeout=60, cwd=str(current),
+                    )
+                    if out.returncode == 0 and sm.exists():
+                        return str(sm)
+                except (subprocess.TimeoutExpired, FileNotFoundError):
+                    pass
+            # rojo missing: fall through to check parents, then None
+        if current.parent == current:
+            break
+        current = current.parent
+    return None
+
+
 def _find_config(start_dir: str, config_names: tuple[str, ...]) -> str | None:
     current = Path(start_dir).resolve()
     while True:
@@ -248,6 +286,12 @@ _LUAU_LSP_RE = re.compile(
     r"^(?P<file>.+?):(?P<line>\d+):(?P<col>\d+)(?:-(?P<endcol>\d+))?"
     r":\s+\(W0\)\s+(?P<category>\w+):\s+(?P<message>.+)$"
 )
+# With --sourcemap, plain-formatter lines gain a virtual-instance path after
+# the file: `path [game/ServerScriptService/Utils]:8:27-29: (W0) TypeError: ...`
+_LUAU_LSP_SOURCEMAP_RE = re.compile(
+    r"^(?P<file>.+?) \[[^\]]+\]:(?P<line>\d+):(?P<col>\d+)(?:-(?P<endcol>\d+))?"
+    r":\s+\(W0\)\s+(?P<category>\w+):\s+(?P<message>.+)$"
+)
 _SKIP_PREFIXES = ("[INFO]", "[WARN]", "[DEBUG]", "WARNING:", "Analyzing")
 _SELENE_SEVERITY = {"Error": "error", "Warning": "warning"}
 
@@ -258,7 +302,7 @@ def _parse_luau_lsp(output: str, stderr: str = "") -> list[dict]:
         line = line.strip()
         if not line or any(line.startswith(p) for p in _SKIP_PREFIXES):
             continue
-        m = _LUAU_LSP_RE.match(line)
+        m = _LUAU_LSP_SOURCEMAP_RE.match(line) or _LUAU_LSP_RE.match(line)
         if not m:
             continue
         category = m.group("category")
@@ -373,12 +417,16 @@ def check_file(filepath: str) -> list[dict]:
         return all_diags
 
     project_luaurc = _find_config(project_root, (".luaurc",))
+    sourcemap = _find_sourcemap(project_root)
+    analyze_cwd = os.path.dirname(sourcemap) if sourcemap else None
     cmd = [
         str(luau_lsp), "analyze", "--platform", "roblox", "--formatter", "plain",
         f"--definitions=@roblox={defs}", f"--base-luaurc={project_luaurc or base_luaurc}",
-        check_target,
     ]
-    stdout, stderr, code = _run(cmd, timeout=60)
+    if sourcemap:
+        cmd.append(f"--sourcemap={sourcemap}")
+    cmd.append(check_target)
+    stdout, stderr, code = _run(cmd, cwd=analyze_cwd, timeout=60)
     if (code == -1 and not stdout) or (code != 0 and not stdout.strip()):
         all_diags.append({
             "file": filepath, "line": 1, "column": 1, "code": "InternalError",
@@ -428,9 +476,18 @@ def check_file(filepath: str) -> list[dict]:
                         })
 
     result: list[dict] = []
+    resolve_base = analyze_cwd or project_root
     for d in all_diags:
-        if not os.path.isabs(d["file"]):
-            d["file"] = os.path.abspath(os.path.join(project_root, d["file"]))
+        p = d["file"]
+        if not os.path.isabs(p):
+            # On POSIX hosts, luau-lsp can still emit Windows-style absolute
+            # paths (c:/proj/...) when the sourcemap came from a Windows
+            # workspace. Treat a drive-letter prefix as absolute too.
+            if re.match(r"^[A-Za-z]:[\\/]", p):
+                p = os.path.normpath(p)
+            else:
+                p = os.path.abspath(os.path.join(resolve_base, p))
+        d["file"] = p
         result.append(d)
     if tmp_target:
         try:

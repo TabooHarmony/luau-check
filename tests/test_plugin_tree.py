@@ -258,6 +258,58 @@ def test_engine_check_mode_json(fake_toolchain, tmp_path):
     assert data["summary"]["warnings"] >= 1
 
 
+def test_engine_sourcemap_discovery_and_parse(fake_toolchain, tmp_path):
+    """With a sourcemap.json present, luau-lsp runs with --sourcemap and the
+    emitted `path [game/...]:line:col-col:` diagnostics are parsed correctly.
+
+    The fake luau-lsp emits a sourcemap-style line ONLY when --sourcemap is in
+    argv; without it, it emits nothing (mimicking the real tool: no sourcemap,
+    no cross-file resolution).
+    """
+    project = tmp_path / "project"
+    _write_sample(project, "src/Server/Utils.luau", "--!strict\nlocal Utils = {}\nfunction Utils.makePoint(x: number, y: number) return {x=x, y=y} end\nreturn Utils\n")
+    f = _write_sample(project, "src/Server/Consumer.luau", "--!strict\nlocal S = game:GetService('ServerScriptService')\nlocal U = require(S.Utils)\nlocal p = U.makePoint('x', 'y')\nprint(p)\n")
+    (project / "sourcemap.json").write_text(json.dumps({
+        "name": "test", "className": "DataModel",
+        "children": [{
+            "className": "ServerScriptService", "name": "ServerScriptService",
+            "children": [
+                {"className": "ModuleScript", "name": "Utils", "filePaths": ["src/Server/Utils.luau"]},
+                {"className": "Script", "name": "Consumer", "filePaths": ["src/Server/Consumer.luau"]},
+            ],
+        }],
+    }), encoding="utf-8")
+
+    suffix = ".exe" if os.name == "nt" else ""
+    quoted = str(f).replace("\\", "\\\\")
+    _write_fake_bin(fake_toolchain / ".luau-check" / "bin", f"luau-lsp{suffix}", f"""#!/bin/sh
+has_sm=0
+for arg in "$@"; do
+  case "$arg" in
+    --sourcemap=*) has_sm=1;;
+  esac
+done
+if [ "$has_sm" = "1" ]; then
+  echo "{quoted} [game/ServerScriptService/Consumer]:8:27-29: (W0) TypeError: Expected this to be 'number', but got 'string'"
+fi
+exit 0
+""")
+
+    r = subprocess.run(
+        [sys.executable, str(ENGINE), "check", "--json", str(f)],
+        capture_output=True, text=True,
+        env={**os.environ, "HOME": str(fake_toolchain), "PYTHON": sys.executable},
+    )
+    assert r.returncode == 1, r.stderr
+    data = json.loads(r.stdout)
+    errors = [d for d in data["diagnostics"] if d["severity"] == "error"]
+    assert len(errors) == 1, f"expected the cross-file TypeError, got: {data['diagnostics']}"
+    e = errors[0]
+    assert e["code"] == "TypeError"
+    assert e["line"] == 8 and e["column"] == 27
+    assert e["file"] == os.path.abspath(str(f)) or e["file"] == str(f)
+
+
 def test_engine_check_clean_ok(fake_toolchain, tmp_path):
     f = _write_sample(tmp_path, "clean.luau", "local x: number = 1\n")
     r = subprocess.run(
