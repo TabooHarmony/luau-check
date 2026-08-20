@@ -569,9 +569,11 @@ def _hook_event_file(event: dict) -> str | None:
         fp = ti.get("file_path") or ti.get("file") or ti.get("path")
         return fp if isinstance(fp, str) else None
 
-    # Codex: file writes arrive as Bash commands (printf > x.luau, cat > x.luau,
-    # sed -i ... x.luau). Pull the written Luau path out of the command text.
-    if tool_name == "Bash":
+    # Codex: file writes arrive as shell commands. The tool name varies by
+    # harness/version: "Bash" (codex), "shell_command" (codex exec on
+    # Windows), "PowerShell" (some setups). All carry the command text in
+    # tool_input.command, so route them all through the same extraction.
+    if tool_name in ("Bash", "shell_command", "PowerShell", "Cmd", "cmd"):
         cmd = ti.get("command")
         if not isinstance(cmd, str):
             return None
@@ -595,6 +597,41 @@ def _hook_event_file(event: dict) -> str | None:
         #    mistaken for the target; a bare `.lua` token elsewhere is a read.
         for m in re.finditer(
             r"\bsed\s+-i(?:\S*)\s+(?:(?:'[^']*'|\"[^\"]*\"|s/.*?/[^/]*/[a-z]*)\s+)*([^\s;|&]+\.(?:luau|lua))\b",
+            cmd,
+        ):
+            p = m.group(1).strip("'\"")
+            if p and _is_luau(p):
+                return p
+        # 3. PowerShell write cmdlets, used by codex on Windows
+        #    (`shell_command` runs PowerShell). Forms:
+        #    Set-Content -Path <p> -Value ...   Set-Content -LiteralPath <p>
+        #    Set-Content <p> -Value ... (positional)   Out-File -FilePath <p>
+        #    Add-Content -Path <p> ...   New-Item -Path <p> (sometimes)
+        #    Only a target ending .luau/.lua counts.
+        ps_cmdlet = r"(?i)\b(?:Set-Content|Add-Content|Out-File|New-Item|Set-Item|Copy-Item)\b"
+        ps_pathval = r"(?:'([^']*\.(?:luau|lua))'|\"([^\"]*\.(?:luau|lua))\"|([^\s;|&\"']*\.(?:luau|lua)))"
+        # 3a. explicit -Path / -LiteralPath / -FilePath <value>
+        for m in re.finditer(
+            ps_cmdlet + r"(?:\s+-(?:Path|LiteralPath|FilePath)\s+)" + ps_pathval,
+            cmd,
+        ):
+            p = m.group(1) or m.group(2) or m.group(3)
+            if p and _is_luau(p):
+                return p
+        # 3b. positional: <cmdlet> <value> (with optional leading -Value flag)
+        for m in re.finditer(
+            ps_cmdlet + r"(?:\s+-Value\s+)?\s*" + ps_pathval,
+            cmd,
+        ):
+            p = m.group(1) or m.group(2) or m.group(3)
+            if p and _is_luau(p):
+                return p
+        # 4. .NET File API used by some codex Windows shells:
+        #    [System.IO.File]::WriteAllText("C:/x/broken.luau", "...")
+        #    [System.IO.File]::AppendAllText("C:/x/broken.luau", "...")
+        for m in re.finditer(
+            r"(?i)\[System\.IO\.File\]::(?:WriteAllText|AppendAllText|WriteAllLines)\("
+            r"\s*('(?:[^']*\.(?:luau|lua))'|\"(?:[^\"]*\.(?:luau|lua))\")",
             cmd,
         ):
             p = m.group(1).strip("'\"")
