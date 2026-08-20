@@ -660,6 +660,52 @@ def test_engine_bootstrap_failure_reports_internal_error(tmp_path):
     assert "toolchain" in ctx
 
 
+def test_engine_hook_shell_command_set_content_emits_contract(fake_toolchain, tmp_path):
+    """codex 0.147 on Windows writes via shell_command (PowerShell Set-Content);
+    the hook must extract the path and emit diagnostics (cache-staleness fix)."""
+    f = _write_sample(tmp_path, "bad.luau", "local x: number = 's'\n")
+    cmd = f"Set-Content -Path '{f}' -Value 'local x = 1'"
+    r = _run_hook(fake_toolchain, {"tool_name": "shell_command", "tool_input": {"command": cmd}})
+    assert r.returncode == 0
+    out = json.loads(r.stdout)
+    assert out["hookSpecificOutput"]["hookEventName"] == "PostToolUse"
+    assert "luau-check diagnostics" in out["hookSpecificOutput"]["additionalContext"]
+
+
+def test_engine_hook_shell_command_outfile_and_addcontent(fake_toolchain, tmp_path):
+    """Out-File and Add-Content PowerShell writes must fire."""
+    f = _write_sample(tmp_path, "bad.luau", "local x: number = 's'\n")
+    r1 = _run_hook(fake_toolchain, {"tool_name": "shell_command", "tool_input": {"command": f"Out-File -FilePath '{f}' -Value 'x'"}})
+    assert r1.stdout.strip() != "", "Out-File should produce diagnostics"
+    r2 = _run_hook(fake_toolchain, {"tool_name": "shell_command", "tool_input": {"command": f"Add-Content -Path '{f}' -Value 'x'"}})
+    assert r2.stdout.strip() != "", "Add-Content should produce diagnostics"
+
+
+def test_engine_hook_shell_command_dotnet_file_write(fake_toolchain, tmp_path):
+    """[System.IO.File]::WriteAllText writes must fire."""
+    f = _write_sample(tmp_path, "bad.luau", "local x: number = 's'\n")
+    cmd = f"[System.IO.File]::WriteAllText('{f}', 'local x = 1')"
+    r = _run_hook(fake_toolchain, {"tool_name": "shell_command", "tool_input": {"command": cmd}})
+    assert r.returncode == 0
+    out = json.loads(r.stdout)
+    assert "luau-check diagnostics" in out["hookSpecificOutput"]["additionalContext"]
+
+
+def test_engine_hook_shell_command_read_silent(fake_toolchain, tmp_path):
+    """A read-only shell_command (Get-Content) must stay silent."""
+    f = _write_sample(tmp_path, "bad.luau", "local x: number = 's'\n")
+    r = _run_hook(fake_toolchain, {"tool_name": "shell_command", "tool_input": {"command": f"Get-Content -Path '{f}'"}})
+    assert r.stdout.strip() == "", "Get-Content read must be silent"
+
+
+def test_engine_hook_cmd_tool_name_emits(fake_toolchain, tmp_path):
+    """Cmd/PowerShell tool names route through the same extraction."""
+    f = _write_sample(tmp_path, "bad.luau", "local x: number = 's'\n")
+    for tool in ("PowerShell", "Cmd", "cmd"):
+        r = _run_hook(fake_toolchain, {"tool_name": tool, "tool_input": {"command": f"Set-Content -Path '{f}' -Value 'x'"}})
+        assert r.stdout.strip() != "", f"{tool} should produce diagnostics"
+
+
 def test_engine_hook_bash_read_only_silent(fake_toolchain, tmp_path):
     """cat/read-only Bash commands on .luau files must stay silent."""
     f = _write_sample(tmp_path, "bad.luau", "local x: number = 's'\n")

@@ -26,6 +26,21 @@ codex plugin add luau-check@luau-check
 
 That's it. The plugin loads its skill and its post-edit hook on its own.
 
+## Updating
+
+Codex and Claude Code copy the plugin into their own cache at install time,
+so a `git pull` alone won't update a running plugin. After pulling new
+versions, reinstall it:
+
+```
+codex plugin remove luau-check@luau-check
+codex plugin add luau-check@luau-check
+```
+
+(Claude Code: `/plugin remove luau-check` then `/plugin install luau-check`.)
+If the hook stops reporting diagnostics after an update, this is the first
+thing to check — the cache can hold an older copy.
+
 ## What it does
 
 - Type-checks, lints, and checks formatting after every Write/Edit
