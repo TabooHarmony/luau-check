@@ -516,6 +516,26 @@ def test_engine_mirror_empty_sources_list(fake_toolchain, tmp_path):
     assert (mirror_dir / "ServerScriptService" / "Utils.luau").read_text() == "return 1"
 
 
+def test_engine_mirror_prefers_payload_user_dir(fake_toolchain, tmp_path, monkeypatch):
+    """With multiple Roblox user dirs, _find_studio_settings must pick the one
+    carrying the mirror payload, not the first/oldest (the '0' dir is a stale
+    account that sorts first but has no payload)."""
+    roblox = tmp_path / "Roblox"
+    (roblox / "0" / "InstalledPlugins" / "0").mkdir(parents=True)
+    (roblox / "154032452" / "InstalledPlugins" / "0").mkdir(parents=True)
+    # stale '0' dir: no mirror payload, old mtime
+    stale = roblox / "0" / "InstalledPlugins" / "0" / "settings.json"
+    stale.write_text(json.dumps({"SomeKey": 1}))
+    os.utime(stale, (1000, 1000))
+    # active user dir: has the payload, newer mtime
+    live = roblox / "154032452" / "InstalledPlugins" / "0" / "settings.json"
+    payload = json.dumps({"luau-check-mirror-v1": json.dumps({"sources": {}, "tree": {"className": "DataModel"}})})
+    live.write_text(payload)
+    os.utime(live, (2000, 2000))
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    assert engine._find_studio_settings() == str(live)
+
+
 def test_engine_check_clean_ok(fake_toolchain, tmp_path):
     f = _write_sample(tmp_path, "clean.luau", "local x: number = 1\n")
     r = subprocess.run(

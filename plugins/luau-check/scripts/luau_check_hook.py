@@ -670,14 +670,29 @@ def _find_studio_settings() -> str | None:
     roblox_dir = Path(base) / "Roblox"
     if not roblox_dir.exists():
         return None
-    # settings.json lives under Roblox/<UserId>/InstalledPlugins/0/settings.json
+    # settings.json lives under Roblox/<UserId>/InstalledPlugins/0/settings.json.
+    # Multiple user dirs can exist (different logged-in accounts); prefer the
+    # one that actually carries the mirror payload, else the freshest file.
+    candidates: list[tuple[float, str]] = []
     for user_dir in roblox_dir.iterdir():
         if not user_dir.is_dir():
             continue
         cand = user_dir / "InstalledPlugins" / "0" / "settings.json"
         if cand.exists():
-            return str(cand)
-    return None
+            try:
+                mtime = cand.stat().st_mtime
+            except OSError:
+                mtime = 0.0
+            candidates.append((mtime, str(cand)))
+    if not candidates:
+        return None
+    candidates.sort(reverse=True)
+    # Prefer a candidate that already has the mirror payload (the active
+    # Studio account), else the most recently written settings file.
+    for _, path in candidates:
+        if _read_mirror_payload(path) is not None:
+            return path
+    return candidates[0][1]
 
 
 def _read_mirror_payload(settings_path: str) -> dict | None:
