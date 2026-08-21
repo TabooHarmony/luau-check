@@ -391,12 +391,37 @@ def _merge(diags: list[dict]) -> list[dict]:
     seen: set[tuple[str, int, int, str]] = set()
     merged: list[dict] = []
     for d in diags:
-        key = (d["file"], d["line"], d["column"], d["code"])
+        # normcase: windows paths may arrive with differing drive casings
+        # (C:\ vs c:/) depending on which tool emitted them; fold them so
+        # dedupe works. No-op on POSIX.
+        key = (os.path.normcase(d["file"]), d["line"], d["column"], d["code"])
         if key not in seen:
             seen.add(key)
             merged.append(d)
     merged.sort(key=lambda d: (d["file"], d["line"], d["column"]))
     return merged
+
+
+def _collapse_near_dups(merged: list[dict]) -> list[dict]:
+    """Drop diagnostics that repeat the same finding a few columns over.
+
+    luau-lsp sometimes reports one type mismatch twice (once per operand),
+    e.g. TypeError at 4:23 and 4:28 with identical messages. Agents do not
+    need both. Same file+code+message within 10 columns => keep the first.
+    """
+    out: list[dict] = []
+    for d in merged:
+        dup = any(
+            o["line"] == d["line"]
+            and o["code"] == d["code"]
+            and o["message"] == d["message"]
+            and os.path.normcase(o["file"]) == os.path.normcase(d["file"])
+            and abs(o["column"] - d["column"]) <= 10
+            for o in out
+        )
+        if not dup:
+            out.append(d)
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -524,14 +549,17 @@ def check_file(filepath: str) -> list[dict]:
     resolve_base = analyze_cwd or project_root
     for d in all_diags:
         p = d["file"]
-        if not os.path.isabs(p):
-            # On POSIX hosts, luau-lsp can still emit Windows-style absolute
-            # paths (c:/proj/...) when the sourcemap came from a Windows
-            # workspace. Treat a drive-letter prefix as absolute too.
-            if re.match(r"^[A-Za-z]:[\\/]", p):
-                p = os.path.normpath(p)
-            else:
-                p = os.path.abspath(os.path.join(resolve_base, p))
+        # Drive-letter paths are absolute on every platform (luau-lsp can
+        # emit Windows-style paths even on POSIX when a sourcemap came from
+        # a Windows workspace). Check the drive FIRST: on Windows,
+        # os.path.isabs already covers them, but on POSIX it does not, and
+        # joining a drive path onto a base mangles it beyond recognition.
+        if re.match(r"^[A-Za-z]:[\\/]", p):
+            p = os.path.normpath(p)
+        elif not os.path.isabs(p):
+            p = os.path.abspath(os.path.join(resolve_base, p))
+        else:
+            p = os.path.normpath(p)
         d["file"] = p
         result.append(d)
     if tmp_target:
@@ -539,7 +567,7 @@ def check_file(filepath: str) -> list[dict]:
             os.unlink(tmp_target)
         except OSError:
             pass
-    return _merge(result)
+    return _collapse_near_dups(_merge(result))
 
 
 def check_paths(paths: list[str], cwd: str = ".") -> dict:

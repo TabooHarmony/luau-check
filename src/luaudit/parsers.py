@@ -7,6 +7,7 @@ output), kept dependency-free so every harness can consume it.
 from __future__ import annotations
 
 import json
+import os
 import re
 from dataclasses import dataclass
 
@@ -104,12 +105,16 @@ def parse_selene(output: str) -> list[Diagnostic]:
 
 
 def merge_diagnostics(*lists: list[Diagnostic]) -> list[Diagnostic]:
-    """Merge and deduplicate by (file, line, column, code), sorted."""
+    """Merge and deduplicate by (file, line, column, code), sorted.
+
+    File paths are folded with os.path.normcase so Windows casings that
+    differ between tools (C:\\ vs c:/) still dedupe. No-op on POSIX.
+    """
     seen: set[tuple[str, int, int, str]] = set()
     merged: list[Diagnostic] = []
     for lst in lists:
         for d in lst:
-            key = (d.file, d.line, d.column, d.code)
+            key = (os.path.normcase(d.file), d.line, d.column, d.code)
             if key not in seen:
                 seen.add(key)
                 merged.append(d)

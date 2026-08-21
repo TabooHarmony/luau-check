@@ -279,10 +279,38 @@ def check_files(targets: list[str], cwd: str = ".") -> dict:
                 sm = _find_sourcemap(project_root)
                 base = os.path.dirname(sm) if sm else project_root
                 d.file = os.path.abspath(os.path.join(base, d.file))
+            else:
+                # Drive-letter absolute paths arrive in tool-specific shapes
+                # (forward slashes, differing drive case). Normalize so the
+                # same file always looks identical across tools.
+                d.file = os.path.normpath(d.file)
         all_diags.extend(luau_results + selene_results + stylua_results)
 
     merged = merge_diagnostics(all_diags)
+    merged = _collapse_near_dups(merged)
     return to_dict(merged)
+
+
+def _collapse_near_dups(merged: list[Diagnostic]) -> list[Diagnostic]:
+    """Drop diagnostics repeating one finding a few columns apart.
+
+    luau-lsp sometimes reports a single type mismatch twice (once per
+    operand), e.g. TypeError at 4:23 and 4:28 with identical messages.
+    Same file+code+message within 10 columns => keep the first.
+    """
+    out: list[Diagnostic] = []
+    for d in merged:
+        dup = any(
+            o.line == d.line
+            and o.code == d.code
+            and o.message == d.message
+            and os.path.normcase(o.file) == os.path.normcase(d.file)
+            and abs(o.column - d.column) <= 10
+            for o in out
+        )
+        if not dup:
+            out.append(d)
+    return out
 
 
 # ---------------------------------------------------------------------------

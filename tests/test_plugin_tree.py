@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import os
+import platform
 import re
 import shutil
 import stat
@@ -128,6 +129,8 @@ def test_hooks_json_references_existing_script():
 
 
 def test_hook_script_executable_on_posix():
+    if platform.system() == "Windows":
+        pytest.skip("POSIX exec bits are not representable on NTFS checkouts")
     sh = PLUGIN_DIR / "scripts" / "luaudit-hook.sh"
     mode = sh.stat().st_mode
     assert mode & stat.S_IXUSR, "hook .sh must be executable"
@@ -203,7 +206,9 @@ exit 1
 def _write_sample(root: Path, name: str, content: str) -> Path:
     p = root / name
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(content, encoding="utf-8")
+    # Binary write: text mode translates \n to \r\n on Windows and stylua
+    # --check then flags every fixture as unformatted.
+    p.write_bytes(content.encode("utf-8"))
     return p
 
 
