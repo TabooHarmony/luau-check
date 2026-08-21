@@ -456,6 +456,27 @@ def _ensure_utf8(filepath: str) -> tuple[str, str | None]:
     return filepath, None
 
 
+def _normalize_tool_path(p: str, resolve_base: str) -> str:
+    """Normalize a diagnostic path from any tool into a real absolute path.
+
+    Handles three shapes:
+    - plain relative:  resolved against resolve_base
+    - drive absolute:  C:\\x or c:/x (luau-lsp emits these even on POSIX when
+      a sourcemap came from a Windows workspace)
+    - MSYS/git-bash:   /c/Users/x or /mnt/c/Users/x -- fake toolchains run
+      under git-bash on Windows runners and rewrite path arguments like this;
+      translate back instead of joining them onto a base (which mangles them).
+    """
+    m = re.match(r"^/(?:mnt/)?([A-Za-z])(/.*)$", p)
+    if m:
+        p = f"{m.group(1).upper()}:{m.group(2)}"
+    if re.match(r"^[A-Za-z]:[\\/]", p):
+        return os.path.normpath(p)
+    if os.path.isabs(p):
+        return os.path.normpath(p)
+    return os.path.abspath(os.path.join(resolve_base, p))
+
+
 def check_file(filepath: str) -> list[dict]:
     """Run all three tools on one file, return merged diagnostics with
     absolute paths. A broken toolchain surfaces as an InternalError diagnostic
@@ -548,19 +569,7 @@ def check_file(filepath: str) -> list[dict]:
     result: list[dict] = []
     resolve_base = analyze_cwd or project_root
     for d in all_diags:
-        p = d["file"]
-        # Drive-letter paths are absolute on every platform (luau-lsp can
-        # emit Windows-style paths even on POSIX when a sourcemap came from
-        # a Windows workspace). Check the drive FIRST: on Windows,
-        # os.path.isabs already covers them, but on POSIX it does not, and
-        # joining a drive path onto a base mangles it beyond recognition.
-        if re.match(r"^[A-Za-z]:[\\/]", p):
-            p = os.path.normpath(p)
-        elif not os.path.isabs(p):
-            p = os.path.abspath(os.path.join(resolve_base, p))
-        else:
-            p = os.path.normpath(p)
-        d["file"] = p
+        d["file"] = _normalize_tool_path(d["file"], resolve_base)
         result.append(d)
     if tmp_target:
         try:

@@ -48,8 +48,11 @@ PLUGIN_FILES = [
 def _run_hook(tmp_home: Path, event: dict, env_extra: dict | None = None) -> subprocess.CompletedProcess:
     env = dict(os.environ)
     env["HOME"] = str(tmp_home)
+    # Windows Python ignores HOME (Path.home() reads USERPROFILE), so point
+    # the engine at the fake cache explicitly via its own override var.
+    env["LUAUDIT_HOME"] = str(tmp_home / ".luaudit")
     env["PYTHON"] = sys.executable
-    env.pop("LUAUDIT_HOME", None)
+    env.pop("LUAUDIT_HOME_OVERRIDE_SENTINEL", None)
     if env_extra:
         env.update(env_extra)
     return subprocess.run(
@@ -161,7 +164,14 @@ def fake_toolchain(tmp_path):
 
     Fake luau-lsp emits a real-style diagnostic line for a 'bad' marker.
     Fake selene emits JSON diagnostics. Fake stylua exits 1 with a diff line.
+
+    Skipped on Windows: the fakes are #!/bin/sh scripts, which cannot be
+    executed by native Windows Python (and under git-bash they rewrite path
+    arguments MSYS-style). Engine-on-Windows behavior is covered live on the
+    WINDEV VM; detection/parity logic runs everywhere via test_plugin_parity.
     """
+    if os.name == "nt":
+        pytest.skip("fake POSIX toolchain cannot execute on Windows")
     home = tmp_path / "home"
     bin_dir = home / ".luaudit" / "bin"
     defs_dir = home / ".luaudit" / "defs"
