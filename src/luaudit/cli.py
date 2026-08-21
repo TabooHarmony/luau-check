@@ -22,6 +22,7 @@ import sys
 from pathlib import Path
 
 from . import bootstrap
+from . import plugin as plugin_mod
 from .runners import check_files
 from .version import __version__
 
@@ -102,9 +103,39 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     print(f"defs: {'ok' if ok_defs else 'missing'}")
     if not ok_defs:
         problems.append("defs")
+    st = plugin_mod.status()
+    if st["installed"] and st["up_to_date"]:
+        print("studio-mirror: ok")
+    elif st["installed"]:
+        print(f"studio-mirror: stale ({st['note']})")
+        print('fix: luaudit plugin install --yes')
+    else:
+        print(f"studio-mirror: not installed ({st['plugins_dir']})")
+        print('fix (optional): luaudit plugin install --yes')
     if problems:
         print(f"problems: {', '.join(problems)}", file=sys.stderr)
         return 1
+    return 0
+
+
+def _cmd_plugin(args: argparse.Namespace) -> int:
+    if args.action == "install":
+        out = plugin_mod.install(yes=args.yes)
+        print(f"{out['note']}: {out['path']}")
+        if out.get("restart_note"):
+            print(out["restart_note"])
+        return 0 if out["installed"] else 2
+    if args.action == "remove":
+        out = plugin_mod.remove()
+        print(f"{out['note']}: {out['path']}")
+        return 0 if out["removed"] else 0
+    # status (default when no action given)
+    st = plugin_mod.status()
+    for k in ("engine_version", "engine_schema", "plugins_dir", "installed",
+              "schema", "up_to_date"):
+        print(f"{k}: {st[k]}")
+    if st["note"]:
+        print(f"note: {st['note']}")
     return 0
 
 
@@ -126,7 +157,12 @@ def main(argv: list[str] | None = None) -> int:
     p_fmt.add_argument("--cwd", default=".")
 
     sub.add_parser("init", help="write default selene.toml and .luaurc")
-    sub.add_parser("doctor", help="verify toolchain")
+    sub.add_parser("doctor", help="verify toolchain and studio mirror plugin")
+    p_plugin = sub.add_parser("plugin", help="manage the Roblox Studio mirror plugin")
+    p_plugin.add_argument("action", nargs="?", default="status",
+                          choices=("install", "remove", "status"))
+    p_plugin.add_argument("--yes", action="store_true", dest="yes",
+                          help="reinstall even if already up to date; required for non-interactive runs")
     sub.add_parser("version", help="print version")
 
     args = parser.parse_args(argv)
@@ -138,6 +174,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_init(args)
     if args.command == "doctor":
         return _cmd_doctor(args)
+    if args.command == "plugin":
+        return _cmd_plugin(args)
     if args.command == "version":
         print(__version__)
         return 0

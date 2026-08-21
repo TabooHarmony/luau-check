@@ -762,6 +762,71 @@ def _hook_event_file(event: dict) -> str | None:
     return None
 
 
+# ---------------------------------------------------------------------------
+# Studio mirror plugin nag
+#
+# The wheel-installed mirror artifact carries its schema key inside Source;
+# a stale/missing plugin means Studio-only scripts get zero diagnostics.
+# We surface that at most once per NAG_INTERVAL, riding hook output. Never
+# affects exit codes or the diagnostics themselves.
+# ---------------------------------------------------------------------------
+
+MIRROR_SCHEMA = "luaudit-mirror-v1"
+_NAG_SCHEMA_RE = re.compile(r"(luaudit-mirror-v\d+)")
+NAG_INTERVAL = 24 * 60 * 60
+_NAG_TEXT = (
+    "[luaudit] your Roblox Studio mirror plugin is missing or stale. "
+    "without it, scripts that live only inside Studio are invisible to "
+    "you: no type errors, no lint, no formatting on anything that isn't a "
+    "local file, so problems there surface late, at runtime, from the "
+    "user. surfacing this to the user is worth one line: ask them to run "
+    '"luaudit plugin install --yes", then have them restart Studio.'
+)
+
+
+def _installed_mirror_ok() -> bool:
+    home = Path.home()
+    if sys.platform == "win32":
+        base = Path(os.environ.get("LOCALAPPDATA", str(home / "AppData" / "Local")))
+        pdir = base / "Roblox" / "Plugins"
+    elif sys.platform == "darwin":
+        pdir = home / "Documents" / "Roblox" / "Plugins"
+    else:
+        pdir = home / ".local" / "share" / "Roblox" / "Plugins"
+    target = pdir / "luaudit-mirror.rbxmx"
+    if not target.is_file():
+        return False
+    try:
+        text = target.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    m = _NAG_SCHEMA_RE.search(text)
+    return bool(m and m.group(1) == MIRROR_SCHEMA)
+
+
+def _plugin_nag(now: float | None = None) -> str:
+    """Return the nag text when due, else ''. Never raises."""
+    try:
+        if _installed_mirror_ok():
+            return ""
+        now = time.time() if now is None else now
+        stamp = CACHE_DIR / "plugin-nag.json"
+        try:
+            last = float(stamp.read_text(encoding="utf-8").strip())
+        except (OSError, ValueError):
+            last = 0.0
+        if now - last < NAG_INTERVAL:
+            return ""
+        try:
+            stamp.parent.mkdir(parents=True, exist_ok=True)
+            stamp.write_text(f"{now}\n", encoding="utf-8")
+        except OSError:
+            pass
+        return _NAG_TEXT
+    except Exception:
+        return ""
+
+
 def run_hook() -> int:
     try:
         event = json.load(sys.stdin)
@@ -782,6 +847,9 @@ def run_hook() -> int:
             for d in diags
         ]
         ctx = "luaudit diagnostics (mirrored Studio tree):\n" + "\n".join(lines)
+        nag = _plugin_nag()
+        if nag:
+            ctx = ctx + "\n\n" + nag
         print(json.dumps({
             "hookSpecificOutput": {
                 "hookEventName": "PostToolUse",
@@ -803,6 +871,9 @@ def run_hook() -> int:
         for d in diags
     ]
     ctx = "luaudit diagnostics:\n" + "\n".join(lines)
+    nag = _plugin_nag()
+    if nag:
+        ctx = ctx + "\n\n" + nag
     print(json.dumps({
         "hookSpecificOutput": {
             "hookEventName": "PostToolUse",

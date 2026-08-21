@@ -79,11 +79,23 @@ reports done. Nobody ran a linter by hand at any point.
 
 ## Studio mirror
 
-For MCP-only workflows where scripts live only inside Studio, the repo ships
-a silent Studio plugin: `plugins/luaudit/studio/luaudit-mirror.rbxmx`. Drop it
-into `%APPDATA%\Roblox\Plugins\` and restart Studio. It mirrors the script
-tree to disk every few seconds, and the hook checks against the mirror when an
-MCP bridge edits a script. One-way: it never writes back into Studio.
+For workflows where scripts live only inside Studio (MCP bridges and similar),
+luaudit ships a silent companion plugin that mirrors the script tree to disk
+every few seconds so the hook can check it. One-way: it never writes back into
+Studio.
+
+Install it with the engine (keeps versions matched):
+
+```
+luaudit plugin install --yes
+```
+
+Then restart Roblox Studio; plugins load at launch only. `luaudit doctor`
+reports whether the installed mirror matches your engine build. Remove with
+`luaudit plugin remove`. Prefer to manage it by hand? Copy
+`plugins/luaudit/studio/luaudit-mirror.rbxmx` from the repo into
+`%LOCALAPPDATA%\Roblox\Plugins\` (Windows) or `~/Documents/Roblox/Plugins/`
+(macOS) yourself.
 
 ## Credit
 

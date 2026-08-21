@@ -17,5 +17,8 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/luaudit"]
 
+[tool.hatch.build.targets.wheel.force-include]
+"plugins/luaudit/studio/luaudit-mirror.rbxmx" = "luaudit/plugin_data/luaudit-mirror.rbxmx"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
