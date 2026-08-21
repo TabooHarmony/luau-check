@@ -52,3 +52,16 @@ def test_mirror_self_check_is_clean():
     result = check_files([str(target)])
     errors = [d for d in result["diagnostics"] if d.get("severity") == "error"]
     assert errors == [], f"mirror has type errors: {errors}"
+
+
+def test_studio_rbxmx_matches_source():
+    """The shippable .rbxmx wrapper must embed the current mirror source."""
+    studio_dir = REPO / "plugins" / "luaudit" / "studio"
+    src = (studio_dir / "luaudit-mirror.luau").read_text(encoding="utf-8")
+    rbxmx_path = studio_dir / "luaudit-mirror.rbxmx"
+    assert rbxmx_path.exists(), "luaudit-mirror.rbxmx missing from repo"
+    rbxmx = rbxmx_path.read_text(encoding="utf-8")
+    assert f"<![CDATA[{src}]]>" in rbxmx, (
+        "luaudit-mirror.rbxmx embeds stale source; regenerate it from "
+        "luaudit-mirror.luau"
+    )
