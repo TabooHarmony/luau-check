@@ -19,8 +19,8 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install package
-        run: pip install -e .
+      - name: Install package and test deps
+        run: pip install -e . pytest
 
       - name: Run test suite (includes plugin/package parity checks)
         run: pytest -q
