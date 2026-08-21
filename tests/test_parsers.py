@@ -1,8 +1,8 @@
-"""Tests for luau-check parsers (luau-lsp plain, selene JSON, merge)."""
+"""Tests for trua parsers (luau-lsp plain, selene JSON, merge)."""
 
 from __future__ import annotations
 
-from luau_check.parsers import (
+from trua.parsers import (
     Diagnostic,
     merge_diagnostics,
     parse_luau_lsp,

@@ -1,4 +1,4 @@
-"""Tests for the shipped plugin tree (plugins/luau-check/).
+"""Tests for the shipped plugin tree (plugins/trua/).
 
 These validate the artifacts that actually ship to users in Claude Code and
 Codex marketplaces:
@@ -26,21 +26,21 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-PLUGIN_DIR = REPO_ROOT / "plugins" / "luau-check"
-ENGINE = PLUGIN_DIR / "scripts" / "luau_check_hook.py"
+PLUGIN_DIR = REPO_ROOT / "plugins" / "trua"
+ENGINE = PLUGIN_DIR / "scripts" / "trua_hook.py"
 
 # Import the engine module directly for unit-level helpers (stdlib-only).
 sys.path.insert(0, str(PLUGIN_DIR / "scripts"))
-import luau_check_hook as engine  # noqa: E402
+import trua_hook as engine  # noqa: E402
 
 PLUGIN_FILES = [
     ".claude-plugin/plugin.json",
     ".codex-plugin/plugin.json",
     "hooks/hooks.json",
-    "scripts/luau-check-hook.sh",
-    "scripts/luau-check-hook.cmd",
-    "scripts/luau_check_hook.py",
-    "skills/luau-check/SKILL.md",
+    "scripts/trua-hook.sh",
+    "scripts/trua-hook.cmd",
+    "scripts/trua_hook.py",
+    "skills/trua/SKILL.md",
 ]
 
 
@@ -48,7 +48,7 @@ def _run_hook(tmp_home: Path, event: dict, env_extra: dict | None = None) -> sub
     env = dict(os.environ)
     env["HOME"] = str(tmp_home)
     env["PYTHON"] = sys.executable
-    env.pop("LUAU_CHECK_HOME", None)
+    env.pop("TRUA_HOME", None)
     if env_extra:
         env.update(env_extra)
     return subprocess.run(
@@ -79,15 +79,15 @@ def test_plugin_files_exist():
 
 def test_claude_manifest_valid():
     data = json.loads((PLUGIN_DIR / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
-    assert data["name"] == "luau-check"
-    assert data["version"] == "3.0.0"
+    assert data["name"] == "trua"
+    assert data["version"] == "1.0.0"
     assert "description" in data
 
 
 def test_codex_manifest_valid():
     data = json.loads((PLUGIN_DIR / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8"))
-    assert data["name"] == "luau-check"
-    assert data["version"] == "3.0.0"
+    assert data["name"] == "trua"
+    assert data["version"] == "1.0.0"
     # codex loads ./hooks/hooks.json by default; manifest may omit "hooks"
     assert "interface" in data
 
@@ -128,22 +128,22 @@ def test_hooks_json_references_existing_script():
 
 
 def test_hook_script_executable_on_posix():
-    sh = PLUGIN_DIR / "scripts" / "luau-check-hook.sh"
+    sh = PLUGIN_DIR / "scripts" / "trua-hook.sh"
     mode = sh.stat().st_mode
     assert mode & stat.S_IXUSR, "hook .sh must be executable"
     # the .cmd wrapper is only used on Windows, but must be present
-    assert (PLUGIN_DIR / "scripts" / "luau-check-hook.cmd").exists()
+    assert (PLUGIN_DIR / "scripts" / "trua-hook.cmd").exists()
 
 
 def test_marketplace_files():
     for rel in (".claude-plugin/marketplace.json", ".agents/plugins/marketplace.json"):
         data = json.loads((REPO_ROOT / rel).read_text(encoding="utf-8"))
-        assert data["name"] == "luau-check"
+        assert data["name"] == "trua"
         plugins = data["plugins"]
         assert len(plugins) == 1
         entry = plugins[0]
-        assert entry["name"] == "luau-check"
-        assert entry["source"].startswith("./plugins/luau-check"), entry["source"]
+        assert entry["name"] == "trua"
+        assert entry["source"].startswith("./plugins/trua"), entry["source"]
         # the plugin the marketplace points to exists
         assert (REPO_ROOT / entry["source"]).exists(), entry["source"]
 
@@ -154,15 +154,15 @@ def test_marketplace_files():
 
 @pytest.fixture()
 def fake_toolchain(tmp_path):
-    """Install fake luau-lsp/selene/stylua + defs into a temp ~/.luau-check.
+    """Install fake luau-lsp/selene/stylua + defs into a temp ~/.trua.
 
     Fake luau-lsp emits a real-style diagnostic line for a 'bad' marker.
     Fake selene emits JSON diagnostics. Fake stylua exits 1 with a diff line.
     """
     home = tmp_path / "home"
-    bin_dir = home / ".luau-check" / "bin"
-    defs_dir = home / ".luau-check" / "defs"
-    config_dir = home / ".luau-check" / "config"
+    bin_dir = home / ".trua" / "bin"
+    defs_dir = home / ".trua" / "defs"
+    config_dir = home / ".trua" / "config"
     bin_dir.mkdir(parents=True)
     defs_dir.mkdir(parents=True)
     config_dir.mkdir(parents=True)
@@ -215,7 +215,7 @@ def test_engine_hook_bad_file_emits_contract(fake_toolchain, tmp_path):
     out = json.loads(r.stdout)
     assert out["hookSpecificOutput"]["hookEventName"] == "PostToolUse"
     ctx = out["hookSpecificOutput"]["additionalContext"]
-    assert "luau-check diagnostics" in ctx
+    assert "trua diagnostics" in ctx
     assert "[ERROR]" in ctx and "[WARNING]" in ctx
 
 
@@ -286,7 +286,7 @@ def test_engine_sourcemap_discovery_and_parse(fake_toolchain, tmp_path):
 
     suffix = ".exe" if os.name == "nt" else ""
     quoted = str(f).replace("\\", "\\\\")
-    _write_fake_bin(fake_toolchain / ".luau-check" / "bin", f"luau-lsp{suffix}", f"""#!/bin/sh
+    _write_fake_bin(fake_toolchain / ".trua" / "bin", f"luau-lsp{suffix}", f"""#!/bin/sh
 has_sm=0
 for arg in "$@"; do
   case "$arg" in
@@ -347,7 +347,7 @@ exit 0
 """)
     # fake luau-lsp: emit cross-file error only when --sourcemap is passed
     quoted = str(f).replace("\\", "\\\\")
-    _write_fake_bin(fake_toolchain / ".luau-check" / "bin", f"luau-lsp{suffix}", f"""#!/bin/sh
+    _write_fake_bin(fake_toolchain / ".trua" / "bin", f"luau-lsp{suffix}", f"""#!/bin/sh
 has_sm=0
 for arg in "$@"; do
   case "$arg" in
@@ -379,8 +379,8 @@ exit 0
 
 def test_engine_mirror_materializes_and_checks(fake_toolchain, tmp_path):
     """mirror mode reads the Studio plugin settings.json payload, materializes
-    files + sourcemap into ~/.luau-check/mirror/, and checks them."""
-    # fake Studio settings.json with a luau-check mirror payload
+    files + sourcemap into ~/.trua/mirror/, and checks them."""
+    # fake Studio settings.json with a trua mirror payload
     local = tmp_path / "AppData" / "Local"
     settings_dir = local / "Roblox" / "12345" / "InstalledPlugins" / "0"
     settings_dir.mkdir(parents=True)
@@ -400,14 +400,14 @@ def test_engine_mirror_materializes_and_checks(fake_toolchain, tmp_path):
             }],
         },
     }
-    settings = {"luau-check-mirror-v1": json.dumps(payload)}
+    settings = {"trua-mirror-v1": json.dumps(payload)}
     (settings_dir / "settings.json").write_text(json.dumps(settings), encoding="utf-8")
 
     # fake luau-lsp: emit cross-file error only when --sourcemap is passed
     suffix = ".exe" if os.name == "nt" else ""
-    mirror_path = fake_toolchain / ".luau-check" / "mirror" / "ServerScriptService" / "Consumer.luau"
+    mirror_path = fake_toolchain / ".trua" / "mirror" / "ServerScriptService" / "Consumer.luau"
     quoted = str(mirror_path).replace("\\", "\\\\")
-    _write_fake_bin(fake_toolchain / ".luau-check" / "bin", f"luau-lsp{suffix}", f"""#!/bin/sh
+    _write_fake_bin(fake_toolchain / ".trua" / "bin", f"luau-lsp{suffix}", f"""#!/bin/sh
 has_sm=0
 for arg in "$@"; do
   case "$arg" in
@@ -432,8 +432,8 @@ exit 0
     assert len(errors) == 1, f"expected 1 TypeError, got: {data['diagnostics']}"
     assert errors[0]["code"] == "TypeError"
     # files materialized into the mirror dir
-    assert (fake_toolchain / ".luau-check" / "mirror" / "sourcemap.json").exists()
-    assert (fake_toolchain / ".luau-check" / "mirror" / "ServerScriptService" / "Consumer.luau").exists()
+    assert (fake_toolchain / ".trua" / "mirror" / "sourcemap.json").exists()
+    assert (fake_toolchain / ".trua" / "mirror" / "ServerScriptService" / "Consumer.luau").exists()
 
 
 def test_engine_mcp_edit_routes_to_mirror(fake_toolchain, tmp_path):
@@ -459,12 +459,12 @@ def test_engine_mcp_edit_routes_to_mirror(fake_toolchain, tmp_path):
             }],
         },
     }
-    (settings_dir / "settings.json").write_text(json.dumps({"luau-check-mirror-v1": json.dumps(payload)}), encoding="utf-8")
+    (settings_dir / "settings.json").write_text(json.dumps({"trua-mirror-v1": json.dumps(payload)}), encoding="utf-8")
 
     suffix = ".exe" if os.name == "nt" else ""
-    mirror_path = fake_toolchain / ".luau-check" / "mirror" / "ServerScriptService" / "Consumer.luau"
+    mirror_path = fake_toolchain / ".trua" / "mirror" / "ServerScriptService" / "Consumer.luau"
     quoted = str(mirror_path).replace("\\", "\\\\")
-    _write_fake_bin(fake_toolchain / ".luau-check" / "bin", f"luau-lsp{suffix}", f"""#!/bin/sh
+    _write_fake_bin(fake_toolchain / ".trua" / "bin", f"luau-lsp{suffix}", f"""#!/bin/sh
 has_sm=0
 for arg in "$@"; do
   case "$arg" in
@@ -529,7 +529,7 @@ def test_engine_mirror_prefers_payload_user_dir(fake_toolchain, tmp_path, monkey
     os.utime(stale, (1000, 1000))
     # active user dir: has the payload, newer mtime
     live = roblox / "154032452" / "InstalledPlugins" / "0" / "settings.json"
-    payload = json.dumps({"luau-check-mirror-v1": json.dumps({"sources": {}, "tree": {"className": "DataModel"}})})
+    payload = json.dumps({"trua-mirror-v1": json.dumps({"sources": {}, "tree": {"className": "DataModel"}})})
     live.write_text(payload)
     os.utime(live, (2000, 2000))
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
@@ -574,7 +574,7 @@ def test_engine_hook_bash_write_redirection_emits_contract(fake_toolchain, tmp_p
     assert r.returncode == 0
     out = json.loads(r.stdout)
     assert out["hookSpecificOutput"]["hookEventName"] == "PostToolUse"
-    assert "luau-check diagnostics" in out["hookSpecificOutput"]["additionalContext"]
+    assert "trua diagnostics" in out["hookSpecificOutput"]["additionalContext"]
 
 
 def test_engine_hook_bash_append_and_sed(fake_toolchain, tmp_path):
@@ -595,7 +595,7 @@ def test_engine_hook_bash_quoted_spaced_path(fake_toolchain, tmp_path):
     r = _run_hook(fake_toolchain, {"tool_name": "Bash", "tool_input": {"command": f"printf 'x' > \"{f}\""}})
     assert r.returncode == 0
     out = json.loads(r.stdout)
-    assert "luau-check diagnostics" in out["hookSpecificOutput"]["additionalContext"]
+    assert "trua diagnostics" in out["hookSpecificOutput"]["additionalContext"]
     # single-quoted variant too
     r2 = _run_hook(fake_toolchain, {"tool_name": "Bash", "tool_input": {"command": f"printf 'x' > '{f}'"}})
     assert r2.stdout.strip() != "", "single-quoted path should fire"
@@ -645,7 +645,7 @@ def test_engine_bootstrap_failure_reports_internal_error(tmp_path):
     f = tmp_path / "bad.luau"
     f.write_text("local x: number = 's'\n", encoding="utf-8")
     env = {**os.environ, "HOME": str(home), "PYTHON": sys.executable,
-           "LUAU_CHECK_HOME": str(home / ".luau-check"),
+           "TRUA_HOME": str(home / ".trua"),
            # block all network so bootstrap fails deterministically
            "https_proxy": "http://127.0.0.1:9", "http_proxy": "http://127.0.0.1:9"}
     r = subprocess.run(
@@ -669,7 +669,7 @@ def test_engine_hook_shell_command_set_content_emits_contract(fake_toolchain, tm
     assert r.returncode == 0
     out = json.loads(r.stdout)
     assert out["hookSpecificOutput"]["hookEventName"] == "PostToolUse"
-    assert "luau-check diagnostics" in out["hookSpecificOutput"]["additionalContext"]
+    assert "trua diagnostics" in out["hookSpecificOutput"]["additionalContext"]
 
 
 def test_engine_hook_shell_command_outfile_and_addcontent(fake_toolchain, tmp_path):
@@ -688,7 +688,7 @@ def test_engine_hook_shell_command_dotnet_file_write(fake_toolchain, tmp_path):
     r = _run_hook(fake_toolchain, {"tool_name": "shell_command", "tool_input": {"command": cmd}})
     assert r.returncode == 0
     out = json.loads(r.stdout)
-    assert "luau-check diagnostics" in out["hookSpecificOutput"]["additionalContext"]
+    assert "trua diagnostics" in out["hookSpecificOutput"]["additionalContext"]
 
 
 def test_engine_hook_shell_command_read_silent(fake_toolchain, tmp_path):
@@ -724,7 +724,7 @@ def test_sh_hook_script_end_to_end(fake_toolchain, tmp_path):
     f = _write_sample(tmp_path, "bad.luau", "local x: number = 's'\n")
     env = {**os.environ, "HOME": str(fake_toolchain), "PYTHON": "python3"}
     r = subprocess.run(
-        ["bash", str(PLUGIN_DIR / "scripts" / "luau-check-hook.sh")],
+        ["bash", str(PLUGIN_DIR / "scripts" / "trua-hook.sh")],
         input=json.dumps({"tool_name": "Write", "tool_input": {"file_path": str(f)}}),
         capture_output=True, text=True, env=env,
     )
@@ -735,7 +735,7 @@ def test_sh_hook_script_end_to_end(fake_toolchain, tmp_path):
 
     clean = _write_sample(tmp_path, "clean.luau", "local x: number = 1\n")
     r2 = subprocess.run(
-        ["bash", str(PLUGIN_DIR / "scripts" / "luau-check-hook.sh")],
+        ["bash", str(PLUGIN_DIR / "scripts" / "trua-hook.sh")],
         input=json.dumps({"tool_name": "Write", "tool_input": {"file_path": str(clean)}}),
         capture_output=True, text=True, env=env,
     )

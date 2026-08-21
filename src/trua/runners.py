@@ -209,7 +209,7 @@ def run_stylua_check(filepath: str, project_root: str | None = None,
                 diagnostics.append(Diagnostic(
                     file=diff_file, line=1, column=1, end_line=None, end_column=None,
                     code="StyLuaFormat", severity="warning",
-                    message="Code is not formatted (run luau-check format to fix)",
+                    message="Code is not formatted (run trua format to fix)",
                     source="stylua",
                 ))
     return diagnostics
@@ -252,7 +252,7 @@ def check_files(targets: list[str], cwd: str = ".") -> dict:
                     "line": 0,
                     "column": 0,
                     "severity": "error",
-                    "source": "luau-check",
+                    "source": "trua",
                     "code": "NoSuchFile",
                     "message": f"path does not exist: {t}",
                 }

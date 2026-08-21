@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from luau_check import bootstrap
+from trua import bootstrap
 
 
 def test_init_configs_writes_once(tmp_path: Path):

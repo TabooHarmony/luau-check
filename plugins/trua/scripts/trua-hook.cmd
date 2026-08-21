@@ -1,5 +1,5 @@
 @echo off
-rem luau-check hook launcher for Windows (v3.0.0)
+rem trua hook launcher for Windows (v1.0.0)
 rem Harnesses on Windows run hooks via cmd; codex 0.147 executes plugin hooks
 rem as `cmd /C ""<command_windows>""` and pre-expands ${CLAUDE_PLUGIN_ROOT}.
 rem The extensionless/${CLAUDE_PLUGIN_ROOT}/forward-slash and %~dp0%/pushd
@@ -12,12 +12,12 @@ if not defined CLAUDE_PLUGIN_ROOT (
   if defined PLUGIN_ROOT set "CLAUDE_PLUGIN_ROOT=%PLUGIN_ROOT%"
 )
 if not defined CLAUDE_PLUGIN_ROOT (
-  echo luau-check: CLAUDE_PLUGIN_ROOT is not set, cannot locate engine 1>&2
+  echo trua: CLAUDE_PLUGIN_ROOT is not set, cannot locate engine 1>&2
   exit /b 9
 )
-set "ENGINE=%CLAUDE_PLUGIN_ROOT%\scripts\luau_check_hook.py"
+set "ENGINE=%CLAUDE_PLUGIN_ROOT%\scripts\trua_hook.py"
 if not exist "%ENGINE%" (
-  echo luau-check: engine not found at "%ENGINE%" 1>&2
+  echo trua: engine not found at "%ENGINE%" 1>&2
   exit /b 8
 )
 
@@ -45,8 +45,8 @@ if %errorlevel% equ 0 (
 
 rem No python on PATH: fall back to git-bash, which ships with the harnesses.
 if exist "C:\Program Files\Git\bin\bash.exe" (
-  "C:\Program Files\Git\bin\bash.exe" "%CLAUDE_PLUGIN_ROOT%\scripts\luau-check-hook.sh"
+  "C:\Program Files\Git\bin\bash.exe" "%CLAUDE_PLUGIN_ROOT%\scripts\trua-hook.sh"
   exit /b %errorlevel%
 )
-echo luau-check: python not found on Windows 1>&2
+echo trua: python not found on Windows 1>&2
 exit /b 1

@@ -1,16 +1,16 @@
-"""CLI entry point for luau-check v2.
+"""CLI entry point for trua v2.
 
 The v2 contract is a plain, fast, deterministic CLI that agents call through
 their own terminal. No MCP server, no always-on process, no LLM turn needed.
 
 Commands:
-    luau-check check FILE|DIR ...   run luau-lsp + selene, print diagnostics
-    luau-check format FILE ...      format files in place with stylua
-    luau-check init                 write default selene/luaurc configs
-    luau-check doctor               verify toolchain (default no-op happy path)
+    trua check FILE|DIR ...   run luau-lsp + selene, print diagnostics
+    trua format FILE ...      format files in place with stylua
+    trua init                 write default selene/luaurc configs
+    trua doctor               verify toolchain (default no-op happy path)
 
 Distribution is plugin-first: install the plugin for Claude Code or Codex
-from the luau-check marketplace (see README). The CLI remains the engine
+from the trua marketplace (see README). The CLI remains the engine
 for on-demand checks.
 """
 
@@ -122,7 +122,7 @@ def _cmd_audit(args: argparse.Namespace) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        prog="luau-check",
+        prog="trua",
         description="Luau diagnostics for AI coding agents (luau-lsp + selene + stylua).",
     )
     sub = parser.add_subparsers(dest="command", required=True)

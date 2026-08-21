@@ -1,6 +1,6 @@
-"""Shared diagnostic model and parsers for luau-check output.
+"""Shared diagnostic model and parsers for trua output.
 
-Same parsing logic as luau-check v1 (proven against real luau-lsp and selene
+Same parsing logic as trua v1 (proven against real luau-lsp and selene
 output), kept dependency-free so every harness can consume it.
 """
 

@@ -1,27 +1,25 @@
-# luau-check
+# trua
 
-Luau type checking and linting for Claude Code and Codex.
+Luau diagnostics for AI coding agents. True Luau: after every edit, trua
+type-checks and lints the change and feeds errors and warnings back to the
+agent so it can fix them itself.
 
-Runs after every edit to a `.luau` or `.lua` file, and feeds errors and
-warnings back to the agent so it can fix them itself.
-
-First check downloads the toolchain into `~/.luau-check`. After that it just
-works.
+First check downloads the toolchain into `~/.trua`. After that it just works.
 
 ## Install
 
 Claude Code:
 
 ```
-/plugin marketplace add TabooHarmony/luau-check
-/plugin install luau-check
+/plugin marketplace add TabooHarmony/trua
+/plugin install trua
 ```
 
 Codex:
 
 ```
-codex plugin marketplace add TabooHarmony/luau-check
-codex plugin add luau-check@luau-check
+codex plugin marketplace add TabooHarmony/trua
+codex plugin add trua@trua
 ```
 
 That's it. The plugin loads its skill and its post-edit hook on its own.
@@ -33,11 +31,11 @@ so a `git pull` alone won't update a running plugin. After pulling new
 versions, reinstall it:
 
 ```
-codex plugin remove luau-check@luau-check
-codex plugin add luau-check@luau-check
+codex plugin remove trua@trua
+codex plugin add trua@trua
 ```
 
-(Claude Code: `/plugin remove luau-check` then `/plugin install luau-check`.)
+(Claude Code: `/plugin remove trua` then `/plugin install trua`.)
 If the hook stops reporting diagnostics after an update, this is the first
 thing to check — the cache can hold an older copy.
 
@@ -54,9 +52,17 @@ thing to check — the cache can hold an older copy.
   so cross-file type errors are caught too. Without a sourcemap it falls back
   to per-file checking.
 
+## Studio mirror
+
+For MCP-only workflows where scripts live only inside Studio, the repo ships
+a silent Studio plugin: `plugins/trua/studio/trua-mirror.luau`. Copy it into
+`%APPDATA%\Roblox\Plugins\` and restart Studio. It mirrors the script tree to
+disk every few seconds, and the hook checks against the mirror when an MCP
+bridge edits a script. One-way: it never writes back into Studio.
+
 ## Credit
 
-luau-check depends on the following projects:
+trua depends on the following projects:
 
 - [luau-lsp](https://github.com/JohnnyMorganz/luau-lsp) by
   [JohnnyMorganz](https://github.com/JohnnyMorganz): Luau language server and
@@ -72,4 +78,6 @@ Roblox's API dumps and hosted at
 
 ## License
 
-MIT. Not affiliated with the projects above or their maintainers.
+MIT. Independent project, not affiliated with or endorsed by Roblox or the
+projects above or their maintainers. Luau is a trademark of Roblox
+Corporation.

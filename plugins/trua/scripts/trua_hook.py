@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Standalone luau-check engine bundled inside the luau-check plugin.
+"""Standalone trua engine bundled inside the trua plugin.
 
 Self-contained (stdlib only) so the plugin works after being copied into a
 harness's plugin cache with no pip install. Shares the toolchain cache
-(~/.luau-check) with the full luau-check CLI.
+(~/.trua) with the full trua CLI.
 
 Two modes:
 - hook (default): read a PostToolUse hook event JSON on stdin
@@ -11,11 +11,11 @@ Two modes:
   and print the harness contract
   {"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":...}}
   ONLY when there are errors/warnings. Clean => empty stdout, exit 0.
-- check:  luau_check_hook.py check [--json] <paths...>
+- check:  trua_hook.py check [--json] <paths...>
   Plain CLI semantics (text or JSON), exit non-zero on errors.
   This is the "minimal CLI": it lives inside the plugin, zero install.
 
-Generated from the luau-check package so versions and URLs never drift.
+Generated from the trua package so versions and URLs never drift.
 """
 
 from __future__ import annotations
@@ -37,10 +37,10 @@ from pathlib import Path
 PLUGIN_VERSION = "3.0.0"
 
 # ---------------------------------------------------------------------------
-# Toolchain (mirror of luau_check.bootstrap)
+# Toolchain (mirror of trua.bootstrap)
 # ---------------------------------------------------------------------------
 
-CACHE_DIR = Path(os.environ.get("LUAU_CHECK_HOME", Path.home() / ".luau-check"))
+CACHE_DIR = Path(os.environ.get("TRUA_HOME", Path.home() / ".trua"))
 BIN_DIR = CACHE_DIR / "bin"
 DEFS_DIR = CACHE_DIR / "defs"
 CONFIG_DIR = CACHE_DIR / "config"
@@ -103,7 +103,7 @@ def _download(url: str, dest: Path, timeout: int = 60, min_size: int = 1024) -> 
     than min_size bytes is treated as a failure (error page / empty body),
     since real tool binaries and defs are always >1KB.
     """
-    req = urllib.request.Request(url, headers={"User-Agent": "luau-check/plugin"})
+    req = urllib.request.Request(url, headers={"User-Agent": "trua/plugin"})
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_name(dest.name + f".tmp-{os.getpid()}")
     try:
@@ -279,7 +279,7 @@ def _find_config(start_dir: str, config_names: tuple[str, ...]) -> str | None:
 
 
 # ---------------------------------------------------------------------------
-# Parsers (mirror of luau_check.parsers)
+# Parsers (mirror of trua.parsers)
 # ---------------------------------------------------------------------------
 
 _LUAU_LSP_RE = re.compile(
@@ -355,7 +355,7 @@ def _merge(diags: list[dict]) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
-# Runners (mirror of luau_check.runners)
+# Runners (mirror of trua.runners)
 # ---------------------------------------------------------------------------
 
 def _run(cmd: list[str], cwd: str | None = None, timeout: int = 60) -> tuple[str, str, int]:
@@ -411,8 +411,8 @@ def check_file(filepath: str) -> list[dict]:
     if not luau_lsp.exists() or not defs.exists():
         all_diags.append({
             "file": filepath, "line": 1, "column": 1, "code": "InternalError",
-            "severity": "error", "source": "luau-check",
-            "message": "luau-check toolchain missing (luau-lsp or defs); run the luau-check CLI once to bootstrap",
+            "severity": "error", "source": "trua",
+            "message": "trua toolchain missing (luau-lsp or defs); run the trua CLI once to bootstrap",
         })
         return all_diags
 
@@ -516,7 +516,7 @@ def check_paths(paths: list[str], cwd: str = ".") -> dict:
     if missing:
         diags = [{
             "file": t, "line": 0, "column": 0, "code": "NoSuchFile",
-            "severity": "error", "source": "luau-check",
+            "severity": "error", "source": "trua",
             "message": f"path does not exist: {t}",
         } for t in missing]
         return _result(diags)
@@ -661,7 +661,7 @@ def run_hook() -> int:
             f"{d['file']}:{d['line']}:{d['column']}: [{d['severity'].upper()}] {d['code']} {d['message']}"
             for d in diags
         ]
-        ctx = "luau-check diagnostics (mirrored Studio tree):\n" + "\n".join(lines)
+        ctx = "trua diagnostics (mirrored Studio tree):\n" + "\n".join(lines)
         print(json.dumps({
             "hookSpecificOutput": {
                 "hookEventName": "PostToolUse",
@@ -682,7 +682,7 @@ def run_hook() -> int:
         f"{d['file']}:{d['line']}:{d['column']}: [{d['severity'].upper()}] {d['code']} {d['message']}"
         for d in diags
     ]
-    ctx = "luau-check diagnostics:\n" + "\n".join(lines)
+    ctx = "trua diagnostics:\n" + "\n".join(lines)
     print(json.dumps({
         "hookSpecificOutput": {
             "hookEventName": "PostToolUse",
@@ -733,9 +733,9 @@ def _find_studio_settings() -> str | None:
 
 
 def _read_mirror_payload(settings_path: str) -> dict | None:
-    """Read the luau-check mirror payload from the plugin settings.json.
+    """Read the trua mirror payload from the plugin settings.json.
 
-    The plugin stores one JSON string under the key 'luau-check-mirror-v1'.
+    The plugin stores one JSON string under the key 'trua-mirror-v1'.
     The settings.json itself is a JSON map of key -> value; the value is a
     JSON-encoded string containing {sources: {rel: source}, tree: {...}}.
     """
@@ -744,7 +744,7 @@ def _read_mirror_payload(settings_path: str) -> dict | None:
             data = json.load(f)
     except (OSError, json.JSONDecodeError):
         return None
-    blob = data.get("luau-check-mirror-v1")
+    blob = data.get("trua-mirror-v1")
     if not isinstance(blob, str):
         return None
     try:
@@ -873,7 +873,7 @@ def run_cli(argv: list[str]) -> int:
         as_json = True
         args = args[1:]
     if not args:
-        print("usage: luau_check_hook.py check [--json] <file|dir> ...", file=sys.stderr)
+        print("usage: trua_hook.py check [--json] <file|dir> ...", file=sys.stderr)
         return 2
     result = check_paths(args, cwd=os.getcwd())
     if as_json:
@@ -894,7 +894,7 @@ def main(argv: list[str] | None = None) -> int:
     if argv and argv[0] == "mirror":
         return run_mirror(argv[1:])
     if argv and argv[0] in ("--help", "-h", "help"):
-        print("luau-check plugin engine: hook mode (stdin event), 'check [--json] <paths>', or 'mirror [--json] [--check-all]'")
+        print("trua plugin engine: hook mode (stdin event), 'check [--json] <paths>', or 'mirror [--json] [--check-all]'")
         return 0
     return run_hook()
 

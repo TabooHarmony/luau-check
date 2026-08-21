@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from luau_check import bootstrap, runners
+from trua import bootstrap, runners
 
 
 @pytest.fixture

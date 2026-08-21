@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# luau-check hook (v3.0.0)
+# trua hook (v1.0.0)
 # PostToolUse hook for Claude Code and Codex.
 # Reads the harness hook event JSON on stdin, checks the edited Luau file,
 # and emits the harness contract
@@ -19,10 +19,10 @@ elif command -v python3 >/dev/null 2>&1; then
 elif command -v python >/dev/null 2>&1; then
   PY_BIN="python"
 else
-  echo "luau-check: no python interpreter found" >&2
+  echo "trua: no python interpreter found" >&2
   exit 1
 fi
 
 input="$(cat)"
-printf '%s' "$input" | "$PY_BIN" "$HOOK_DIR/luau_check_hook.py"
+printf '%s' "$input" | "$PY_BIN" "$HOOK_DIR/trua_hook.py"
 exit 0
