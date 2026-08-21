@@ -84,14 +84,17 @@ def test_plugin_files_exist():
 def test_claude_manifest_valid():
     data = json.loads((PLUGIN_DIR / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
     assert data["name"] == "luaudit"
-    assert data["version"] == "1.0.0"
+    # No pinned `version`: Claude Code then falls back to the resolved commit
+    # SHA, so pushes are picked up by `/plugin marketplace update` instead of
+    # being masked behind a stale manifest string. See README Updating.
+    assert "version" not in data
     assert "description" in data
 
 
 def test_codex_manifest_valid():
     data = json.loads((PLUGIN_DIR / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8"))
     assert data["name"] == "luaudit"
-    assert data["version"] == "1.0.0"
+    assert "version" not in data
     # codex loads ./hooks/hooks.json by default; manifest may omit "hooks"
     assert "interface" in data
 

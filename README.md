@@ -1,10 +1,22 @@
 # luaudit
 
-Luau diagnostics for AI coding agents. After every edit, luaudit
-type-checks and lints the change and feeds errors and warnings back to
-the agent so it can fix them itself.
+[![CI](https://github.com/TabooHarmony/luaudit/actions/workflows/ci.yml/badge.svg)](https://github.com/TabooHarmony/luaudit/actions/workflows/ci.yml)
+
+**luaudit catches your AI agent's Luau mistakes before you do.**
+
+After every edit your agent makes, luaudit type-checks and lints the Luau
+and hands errors and warnings straight back to the agent, so it fixes its
+own work instead of shipping it to you. Nothing to run by hand.
 
 First check downloads the toolchain into `~/.luaudit`. After that it just works.
+
+## Requirements
+
+- Any Python 3 on PATH. On Windows the hook launcher also checks the
+  standard install locations (`C:\Program Files\Python312`, `C:\Python312`)
+  before giving up.
+- Works wherever Claude Code or Codex runs: Windows, macOS, Linux.
+- Installing the CLI itself with pip or uvx needs Python 3.11+.
 
 ## Install
 
@@ -26,18 +38,27 @@ That's it. The plugin loads its skill and its post-edit hook on its own.
 
 ## Updating
 
-Codex and Claude Code copy the plugin into their own cache at install time,
-so a `git pull` alone won't update a running plugin. After pulling new
-versions, reinstall it:
+Both harnesses copy the plugin into their own cache at install time, so a
+`git pull` alone never updates an installed plugin.
+
+Claude Code:
 
 ```
+/plugin marketplace update luaudit
+/plugin update luaudit
+```
+
+Codex:
+
+```
+codex plugin marketplace upgrade luaudit
 codex plugin remove luaudit@luaudit
 codex plugin add luaudit@luaudit
 ```
 
-(Claude Code: `/plugin remove luaudit` then `/plugin install luaudit`.)
-If the hook stops reporting diagnostics after an update, this is the first
-thing to check — the cache can hold an older copy.
+Third-party marketplaces do not auto-update on session start by default in
+either harness. If the hook stops reporting diagnostics after you push new
+commits, run the refresh above; a stale cache copy is the first suspect.
 
 ## What it does
 
@@ -73,7 +94,7 @@ broken2.luau:2:7: WARNING [selene/unused_variable] unused is assigned a value, b
 summary: 1 errors, 4 warnings, 5 total
 ```
 
-The agent follows luaudit's own hints — fixes the type, renames the dead
+The agent follows luaudit's own hints: fixes the type, renames the dead
 variables to `_x` and `_unused`, re-checks, gets silence, and only then
 reports done. Nobody ran a linter by hand at any point.
 
