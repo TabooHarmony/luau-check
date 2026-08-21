@@ -29,15 +29,17 @@ def _toolchain_available() -> bool:
 
 
 @pytest.mark.skipif(not _toolchain_available(), reason="toolchain unavailable")
-def test_relative_input_never_doubles_path(tmp_path):
+def test_relative_input_never_doubles_path(monkeypatch):
     target = REPO / "plugins" / "luaudit" / "studio" / "luaudit-mirror.luau"
     if not target.exists():
         pytest.skip("mirror file missing")
-    # Deliberately relative, from an unrelated cwd.
-    rel = os.path.relpath(target, tmp_path)
-    result = check_files([rel], cwd=str(tmp_path))
+    # Deliberately relative input with cwd at the repo root: the exact
+    # shape that used to double up under the old rebasing.
+    monkeypatch.chdir(REPO)
+    result = check_files(["plugins/luaudit/studio/luaudit-mirror.luau"])
+    doubled_marker = str(REPO / "plugins" / "luaudit" / "studio" / "plugins")
     for d in result["diagnostics"]:
-        assert str(tmp_path) not in d["file"], f"doubled path leaked: {d['file']}"
+        assert doubled_marker not in d["file"], f"doubled path leaked: {d['file']}"
         assert os.path.isabs(d["file"]), f"non-absolute path leaked: {d['file']}"
 
 
