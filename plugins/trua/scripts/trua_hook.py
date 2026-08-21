@@ -34,8 +34,6 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
-PLUGIN_VERSION = "3.0.0"
-
 # ---------------------------------------------------------------------------
 # Toolchain (mirror of trua.bootstrap)
 # ---------------------------------------------------------------------------
