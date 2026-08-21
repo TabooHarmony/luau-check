@@ -606,6 +606,9 @@ def check_paths(paths: list[str], cwd: str = ".") -> dict:
         return _result([])
     all_diags: list[dict] = []
     for f in files:
+        # Absolutize inputs so tools echo absolutes back and path rebasing
+        # never doubles up (see package-side fix in runners.check_files).
+        f = os.path.abspath(f)
         all_diags.extend(check_file(f))
     return _result(_merge(all_diags))
 

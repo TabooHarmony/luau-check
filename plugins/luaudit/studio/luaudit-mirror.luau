@@ -36,70 +36,33 @@ local SCRIPT_CLASSES = {
 	ModuleScript = true,
 }
 
--- Containers we recurse into. Anything not listed (Terrain, Camera, Sound,
--- decals, meshes, folders of non-scripts) is skipped.
+-- Containers we recurse into. Deliberately lean: everything reachable from
+-- here must be safe AND useful to mirror. Folder and Actor are how real
+-- places organize scripts (Rojo projects especially); ServerStorage holds
+-- server-only code. Exotic/core services (CoreGui, RobloxReplicatedStorage,
+-- etc.) are excluded: their scripts are engine-owned, often unreadable at
+-- PluginSecurity, and would make every poll expensive or throwy.
 local CONTAINER_CLASSES = {
 	DataModel = true,
+	Folder = true,
+	Actor = true,
 	Workspace = true,
 	ReplicatedStorage = true,
-	ServerScriptService = true,
 	ReplicatedFirst = true,
+	ServerScriptService = true,
+	ServerStorage = true,
 	StarterGui = true,
 	StarterPlayer = true,
+	StarterPlayerScripts = true,
+	StarterPlayerGui = true,
 	StarterPack = true,
 	Players = true,
 	Lighting = true,
 	SoundService = true,
 	Chat = true,
 	Teams = true,
-	PlayerGui = true,
-	Backpack = true,
-	CoreGui = true,
-	CorePackages = true,
-	LocalizationService = true,
 	TestService = true,
-	MaterialService = true,
-	ProximityPromptService = true,
-	PathfindingService = true,
-	PhysicsService = true,
-	InsertService = true,
-	RenderingService = true,
-	Selection = true,
-	NetworkClient = true,
-	NetworkServer = true,
 	TextChatService = true,
-	BadgeService = true,
-	CollectionService = true,
-	Debris = true,
-	DraggerService = true,
-	FriendService = true,
-	GamePassService = true,
-	HapticService = true,
-	HttpRbxApiService = true,
-	KeyframeSequenceProvider = true,
-	LogService = true,
-	MarketplaceService = true,
-	MemoryService = true,
-	MessagingService = true,
-	PackageService = true,
-	PermissionsService = true,
-	PlayerEmulatorService = true,
-	PolicyService = true,
-	PointsService = true,
-	RobloxReplicatedStorage = true,
-	RobloxServerStorage = true,
-	RobloxSoundService = true,
-	SocialService = true,
-	StarterPlayerScripts = true,
-	StarterPlayerGui = true,
-	TeleportService = true,
-	ThirdPartyUserService = true,
-	UserInputService = true,
-	UserService = true,
-	VoiceChatService = true,
-	VRService = true,
-	WebService = true,
-	WorkspaceService = true,
 }
 
 local function isContainer(instance: Instance): boolean
@@ -139,11 +102,18 @@ local function buildTree(instance: Instance): { any }
 	return node
 end
 
--- Collect (rel, source) pairs from the live tree.
+-- Collect (rel, source) pairs from the live tree. Each read is guarded:
+-- a single unreadable script (permissions, deleted mid-walk) must not kill
+-- the whole mirror.
 local function collectSources(instance: Instance, out: { any })
 	for _, child in instance:GetChildren() do
 		if SCRIPT_CLASSES[child.ClassName] then
-			table.insert(out, { relPathOf(child), child.Source })
+			local ok, source = pcall(function()
+				return (child :: any).Source
+			end)
+			if ok then
+				table.insert(out, { relPathOf(child), source })
+			end
 		end
 		if isContainer(child) then
 			collectSources(child, out)
@@ -182,13 +152,21 @@ local function scheduleWrite()
 	end)
 end
 
--- Poll the tree every ~2s and write only when it changed.
+-- Poll the tree every ~2s and write only when it changed. Frame counting
+-- uses a Heartbeat accumulator: RunService has no GetFrameNumber API.
 local lastPayload: string? = nil
-RunService.Heartbeat:Connect(function()
-	if (RunService:GetFrameNumber() % 120) ~= 0 then
+local secondsSincePoll = 0
+RunService.Heartbeat:Connect(function(deltaTime: number)
+	secondsSincePoll += deltaTime
+	if secondsSincePoll < 2 then
 		return
 	end
-	local now = buildPayload()
+	secondsSincePoll = 0
+	local ok, now = pcall(buildPayload)
+	if not ok then
+		warn("luaudit mirror: buildPayload failed: " .. tostring(now))
+		return
+	end
 	if now ~= lastPayload then
 		lastPayload = now
 		scheduleWrite()

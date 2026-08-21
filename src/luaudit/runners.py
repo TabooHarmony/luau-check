@@ -268,6 +268,10 @@ def check_files(targets: list[str], cwd: str = ".") -> dict:
 
     all_diags: list[Diagnostic] = []
     for f in files:
+        # Absolutize inputs: tools echo back what they are given. Feeding
+        # relative paths makes luau-lsp emit cwd-relative diagnostics that
+        # then get rebased against the wrong base (doubled-path bug).
+        f = os.path.abspath(f)
         project_root = os.path.dirname(f)
         luau_results = run_luau_lsp(f, project_root=project_root)
         selene_results = run_selene(f, project_root=project_root)
