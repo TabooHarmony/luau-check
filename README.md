@@ -1,10 +1,13 @@
-<p align="center">
-  <img src="assets/logo.svg" alt="luaudit" width="160">
-</p>
+<div align="center">
+  <img src="assets/logo.svg" alt="luaudit" width="160"/>
 
-# luaudit
+  # luaudit
 
-[![CI](https://github.com/TabooHarmony/luaudit/actions/workflows/ci.yml/badge.svg)](https://github.com/TabooHarmony/luaudit/actions/workflows/ci.yml)
+  [![CI](https://github.com/TabooHarmony/luaudit/actions/workflows/ci.yml/badge.svg)](https://github.com/TabooHarmony/luaudit/actions/workflows/ci.yml)
+  [![Release](https://img.shields.io/github/v/release/TabooHarmony/luaudit)](https://github.com/TabooHarmony/luaudit/releases/latest)
+  [![Downloads](https://img.shields.io/github/downloads/TabooHarmony/luaudit/total)](https://github.com/TabooHarmony/luaudit/releases)
+  [![License](https://img.shields.io/github/license/TabooHarmony/luaudit)](LICENSE)
+</div>
 
 **luaudit catches your AI agent's Luau mistakes before you do.**
 
