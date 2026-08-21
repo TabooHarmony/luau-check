@@ -1,13 +1,14 @@
-"""Toolchain bootstrap for trua.
+"""Toolchain bootstrap for luaudit.
 
 Downloads luau-lsp, selene, stylua, and Roblox type definitions on first run
-into ~/.trua/, with retry on failure. The v2 CLI calls this lazily when
+into ~/.luaudit/, with retry on failure. The v2 CLI calls this lazily when
 a command needs the toolchain; the happy path stays silent so agent output
 stays clean.
 """
 
 from __future__ import annotations
 
+import hashlib
 import os
 import platform
 import shutil
@@ -19,7 +20,7 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
-CACHE_DIR = Path.home() / ".trua"
+CACHE_DIR = Path.home() / ".luaudit"
 BIN_DIR = CACHE_DIR / "bin"
 DEFS_DIR = CACHE_DIR / "defs"
 CONFIG_DIR = CACHE_DIR / "config"
@@ -32,6 +33,41 @@ SELENE_VERSION = "0.31.0"
 STYLUA_VERSION = "2.5.2"
 
 DEFS_MAX_AGE = 7 * 24 * 60 * 60  # 7 days
+
+# SHA256 pins for every toolchain artifact, keyed by download URL. The zip is
+# verified before extraction; a mismatch aborts that tool's install. When
+# bumping a *_VERSION constant you MUST add the new artifact's hash here --
+# an unpinned URL is a hard error, never a silent downgrade of supply-chain
+# guarantees.
+SHA256_PINS: dict[str, str] = {
+    # luau-lsp 1.68.1 (macos zip serves both arm64 and x86_64)
+    f"https://github.com/JohnnyMorganz/luau-lsp/releases/download/{LUAU_LSP_VERSION}/luau-lsp-win64.zip":
+        "15f2add7c70191c5cd636b047968760f0056893b63be10294453c75430bcb339",
+    f"https://github.com/JohnnyMorganz/luau-lsp/releases/download/{LUAU_LSP_VERSION}/luau-lsp-macos.zip":
+        "e32a71823ee47471d931a03e4186ced2b4c43bb785c8fe05de901fe54c6ebe21",
+    f"https://github.com/JohnnyMorganz/luau-lsp/releases/download/{LUAU_LSP_VERSION}/luau-lsp-linux-x86_64.zip":
+        "ddb5fe8fd503bbcb76ee439fbd6522efbfe9f0098be5a233401e493c579fc4a9",
+    f"https://github.com/JohnnyMorganz/luau-lsp/releases/download/{LUAU_LSP_VERSION}/luau-lsp-linux-arm64.zip":
+        "4ab4906dee6041ec23a8b0abdd81c1fdbd770c8c2dcb931e39a33f6790d779f3",
+    # selene 0.31.0 (macos zip serves both arches)
+    f"https://github.com/Kampfkarren/selene/releases/download/{SELENE_VERSION}/selene-{SELENE_VERSION}-windows.zip":
+        "c5d5d087daa8e38bd71680b2202a407e5d4bc00fd584a648dec17ef9b29a2b73",
+    f"https://github.com/Kampfkarren/selene/releases/download/{SELENE_VERSION}/selene-{SELENE_VERSION}-macos.zip":
+        "67f644e57e14ccb74a0c272bc44af0dc7909d8bdff58e4e59bb3524717da5741",
+    f"https://github.com/Kampfkarren/selene/releases/download/{SELENE_VERSION}/selene-{SELENE_VERSION}-linux.zip":
+        "dac452422747999ec4919bbb8bb52992b66aae533b60022bf005669de8616671",
+    # stylua 2.5.2
+    f"https://github.com/JohnnyMorganz/StyLua/releases/download/v{STYLUA_VERSION}/stylua-windows-x86_64.zip":
+        "e77d0ea1226b8b389b43f702240091249a96eea25857281f90ea24d0eb9eb969",
+    f"https://github.com/JohnnyMorganz/StyLua/releases/download/v{STYLUA_VERSION}/stylua-macos-aarch64.zip":
+        "92ff0889e16324801bc072692974bb67f8161e62010fc90f96c62a17f81f32c7",
+    f"https://github.com/JohnnyMorganz/StyLua/releases/download/v{STYLUA_VERSION}/stylua-macos-x86_64.zip":
+        "53c50a1605d0a6345d160a1a5a21db40bcf2bf9cd23c17f7c277a63a1bff3a7f",
+    f"https://github.com/JohnnyMorganz/StyLua/releases/download/v{STYLUA_VERSION}/stylua-linux-x86_64.zip":
+        "bcb0d855e91f102f28a370e850f8566b3b44b79e6274d806ea5246837c0fd5ab",
+    f"https://github.com/JohnnyMorganz/StyLua/releases/download/v{STYLUA_VERSION}/stylua-linux-aarch64.zip":
+        "0ef2ebf0b7e5a652b65c4cb96c6d9ffb3981a98547de3c764465bbf54a8d761a",
+}
 
 _ready = False
 _last_error: str | None = None
@@ -88,7 +124,7 @@ def _exe(name: str) -> str:
 # ---------------------------------------------------------------------------
 
 def _download(url: str, dest: Path, timeout: int = 60) -> None:
-    req = urllib.request.Request(url, headers={"User-Agent": "trua/bootstrap"})
+    req = urllib.request.Request(url, headers={"User-Agent": "luaudit/bootstrap"})
     # Download to a temp sibling, then atomically rename into place so a
     # truncated/interrupted write can never sit at the live path.
     dest.parent.mkdir(parents=True, exist_ok=True)
@@ -113,6 +149,12 @@ def _download_and_extract_zip(url: str, dest_dir: Path) -> None:
         tmp_path = Path(tmp.name)
     try:
         _download(url, tmp_path)
+        expected = SHA256_PINS.get(url)
+        if expected is None:
+            raise RuntimeError(f"no SHA256 pin registered for {url}; refusing to install unverified binaries")
+        actual = _sha256_of(tmp_path)
+        if actual != expected:
+            raise RuntimeError(f"SHA256 mismatch for {url}: expected {expected}, got {actual}")
         with zipfile.ZipFile(tmp_path) as zf:
             zf.extractall(dest_dir)
         if platform.system() != "Windows":
@@ -121,6 +163,14 @@ def _download_and_extract_zip(url: str, dest_dir: Path) -> None:
                     p.chmod(p.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
     finally:
         tmp_path.unlink(missing_ok=True)
+
+
+def _sha256_of(path: Path) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(65536), b""):
+            h.update(chunk)
+    return h.hexdigest()
 
 
 def _download_file(url: str, dest: Path) -> None:
@@ -211,11 +261,11 @@ def ensure_tools() -> None:
             _download_and_extract_zip(urls["luau-lsp"], BIN_DIR)
         except Exception as e:
             _last_error = f"Failed to download luau-lsp: {e}"
-            print(f"[trua] ERROR: {_last_error}", file=sys.stderr)
+            print(f"[luaudit] ERROR: {_last_error}", file=sys.stderr)
             return
         if not luau_lsp_path.exists():
             _last_error = "luau-lsp binary not found after extraction"
-            print(f"[trua] ERROR: {_last_error}", file=sys.stderr)
+            print(f"[luaudit] ERROR: {_last_error}", file=sys.stderr)
             return
 
     selene_path = BIN_DIR / _exe("selene")
@@ -223,20 +273,20 @@ def ensure_tools() -> None:
         try:
             _download_and_extract_zip(urls["selene"], BIN_DIR)
         except Exception as e:
-            print(f"[trua] WARNING: selene download failed: {e}, linting skipped", file=sys.stderr)
+            print(f"[luaudit] WARNING: selene download failed: {e}, linting skipped", file=sys.stderr)
         else:
             if not selene_path.exists():
-                print("[trua] WARNING: selene binary missing, linting skipped", file=sys.stderr)
+                print("[luaudit] WARNING: selene binary missing, linting skipped", file=sys.stderr)
 
     stylua_path = BIN_DIR / _exe("stylua")
     if not stylua_path.exists():
         try:
             _download_and_extract_zip(urls["stylua"], BIN_DIR)
         except Exception as e:
-            print(f"[trua] WARNING: stylua download failed: {e}, formatting skipped", file=sys.stderr)
+            print(f"[luaudit] WARNING: stylua download failed: {e}, formatting skipped", file=sys.stderr)
         else:
             if not stylua_path.exists():
-                print("[trua] WARNING: stylua binary missing, formatting skipped", file=sys.stderr)
+                print("[luaudit] WARNING: stylua binary missing, formatting skipped", file=sys.stderr)
 
     defs_path = DEFS_DIR / DEFS_FILENAME
     # A zero-length/undersized file (e.g. from an old interrupted write) is
@@ -247,7 +297,7 @@ def ensure_tools() -> None:
         age = time.time() - defs_path.stat().st_mtime
         if age > DEFS_MAX_AGE:
             need_defs = True
-            print("[trua] refreshing Roblox type definitions (stale)...", file=sys.stderr)
+            print("[luaudit] refreshing Roblox type definitions (stale)...", file=sys.stderr)
     if need_defs:
         try:
             _download_file(DEFS_URL, defs_path)
@@ -255,17 +305,17 @@ def ensure_tools() -> None:
                 raise RuntimeError("downloaded type definitions are empty")
         except Exception as e:
             _last_error = f"Failed to download type definitions: {e}"
-            print(f"[trua] ERROR: {_last_error}", file=sys.stderr)
+            print(f"[luaudit] ERROR: {_last_error}", file=sys.stderr)
             return
 
     _write_configs()
 
     os_name, arch = _get_platform()
     if os_name == "linux" and arch == "arm64" and selene_path.exists():
-        print("[trua] WARNING: selene has no native Linux arm64 build; linting may not work", file=sys.stderr)
+        print("[luaudit] WARNING: selene has no native Linux arm64 build; linting may not work", file=sys.stderr)
 
     _ready = True
-    print("[trua] ready", file=sys.stderr)
+    print("[luaudit] ready", file=sys.stderr)
 
 
 def get_paths() -> dict[str, Path]:
@@ -288,24 +338,24 @@ def has_stylua() -> bool:
 
 
 def install_cli_binary(dest_dir: Path) -> Path | None:
-    """Install the trua CLI as a standalone executable.
+    """Install the luaudit CLI as a standalone executable.
 
-    Ships a launcher script that re-runs the installed trua package.
+    Ships a launcher script that re-runs the installed luaudit package.
     Used by agent adapters so the agent can invoke the tool even when the
     package isn't on PATH. Returns the launcher path.
     """
     dest_dir.mkdir(parents=True, exist_ok=True)
-    launcher = dest_dir / (_exe("trua"))
+    launcher = dest_dir / (_exe("luaudit"))
     if launcher.exists():
         return launcher
     # Locate this package's console script if installed (uvx/pipx style)
-    # Fallback: write a launcher that invokes `python -m trua.cli`.
+    # Fallback: write a launcher that invokes `python -m luaudit.cli`.
     here = Path(__file__).resolve().parent
     launcher.write_text(
         "#!/usr/bin/env python3\n"
         "import sys\n"
         f"sys.path.insert(0, {str(here.parent)!r})\n"
-        "from trua.cli import main\n"
+        "from luaudit.cli import main\n"
         "sys.exit(main())\n",
         encoding="utf-8",
     )

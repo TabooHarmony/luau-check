@@ -1,8 +1,8 @@
 --!strict
--- trua Studio mirror plugin
+-- luaudit Studio mirror plugin
 --
 -- One-way mirror: Studio script tree -> plugin settings (JSON), which the
--- trua engine reads and materializes into ~/.trua/mirror/ plus a
+-- luaudit engine reads and materializes into ~/.luaudit/mirror/ plus a
 -- sourcemap.json. Lets the agent hook type-check scripts that only exist
 -- inside Studio (MCP-only / script-sync workflows with no local files).
 --
@@ -27,7 +27,7 @@ local Plugin = plugin
 local HttpService = game:GetService("HttpService")
 local RunService = game:GetService("RunService")
 
-local SETTINGS_KEY = "trua-mirror-v1"
+local SETTINGS_KEY = "luaudit-mirror-v1"
 
 -- Instance classes we mirror as files.
 local SCRIPT_CLASSES = {
@@ -177,7 +177,7 @@ local function scheduleWrite()
 			Plugin:SetSetting(SETTINGS_KEY, buildPayload())
 		end)
 		if not ok then
-			warn("trua mirror: failed to write settings: " .. tostring(err))
+			warn("luaudit mirror: failed to write settings: " .. tostring(err))
 		end
 	end)
 end

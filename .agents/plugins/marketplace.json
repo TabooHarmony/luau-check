@@ -1,12 +1,12 @@
 {
-  "name": "trua",
+  "name": "luaudit",
   "owner": {
     "name": "TabooHarmony"
   },
   "plugins": [
     {
-      "name": "trua",
-      "source": "./plugins/trua",
+      "name": "luaudit",
+      "source": "./plugins/luaudit",
       "description": "Luau diagnostics for AI coding agents (luau-lsp + selene + stylua). Advisory hook + skill after Write/Edit.",
       "version": "1.0.0",
       "author": {

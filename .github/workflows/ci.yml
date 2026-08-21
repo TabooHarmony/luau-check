@@ -1,0 +1,32 @@
+name: ci
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install package
+        run: pip install -e .
+
+      - name: Run test suite (includes plugin/package parity checks)
+        run: pytest -q
+
+      - name: Plugin launchers compile
+        shell: bash
+        run: |
+          python -m py_compile plugins/luaudit/scripts/luaudit_hook.py
+          bash -n plugins/luaudit/scripts/luaudit-hook.sh

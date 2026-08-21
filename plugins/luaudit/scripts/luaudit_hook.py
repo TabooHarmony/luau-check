@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Standalone trua engine bundled inside the trua plugin.
+"""Standalone luaudit engine bundled inside the luaudit plugin.
 
 Self-contained (stdlib only) so the plugin works after being copied into a
 harness's plugin cache with no pip install. Shares the toolchain cache
-(~/.trua) with the full trua CLI.
+(~/.luaudit) with the full luaudit CLI.
 
 Two modes:
 - hook (default): read a PostToolUse hook event JSON on stdin
@@ -11,16 +11,19 @@ Two modes:
   and print the harness contract
   {"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":...}}
   ONLY when there are errors/warnings. Clean => empty stdout, exit 0.
-- check:  trua_hook.py check [--json] <paths...>
+- check:  luaudit_hook.py check [--json] <paths...>
   Plain CLI semantics (text or JSON), exit non-zero on errors.
   This is the "minimal CLI": it lives inside the plugin, zero install.
 
-Generated from the trua package so versions and URLs never drift.
+Hand-synced copy of the luaudit package engine. Kept in lockstep with
+src/luaudit/bootstrap.py; tests/test_plugin_parity.py fails CI if the
+versions, download pins, or behavior ever diverge.
 """
 
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import platform
 import re
@@ -35,10 +38,10 @@ import zipfile
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
-# Toolchain (mirror of trua.bootstrap)
+# Toolchain (mirror of luaudit.bootstrap)
 # ---------------------------------------------------------------------------
 
-CACHE_DIR = Path(os.environ.get("TRUA_HOME", Path.home() / ".trua"))
+CACHE_DIR = Path(os.environ.get("LUAUDIT_HOME", Path.home() / ".luaudit"))
 BIN_DIR = CACHE_DIR / "bin"
 DEFS_DIR = CACHE_DIR / "defs"
 CONFIG_DIR = CACHE_DIR / "config"
@@ -50,6 +53,41 @@ LUAU_LSP_VERSION = "1.68.1"
 SELENE_VERSION = "0.31.0"
 STYLUA_VERSION = "2.5.2"
 DEFS_MAX_AGE = 7 * 24 * 60 * 60
+
+# SHA256 pins for every toolchain artifact, keyed by download URL. Verified
+# before extraction; a mismatch aborts that tool's install. Keep in sync with
+# src/luaudit/bootstrap.py (CI checks parity). When bumping a *_VERSION
+# constant you MUST add the new artifact's hash here -- an unpinned URL is a
+# hard error, never a silent downgrade of supply-chain guarantees.
+SHA256_PINS: dict[str, str] = {
+    # luau-lsp 1.68.1 (macos zip serves both arm64 and x86_64)
+    f"https://github.com/JohnnyMorganz/luau-lsp/releases/download/{LUAU_LSP_VERSION}/luau-lsp-win64.zip":
+        "15f2add7c70191c5cd636b047968760f0056893b63be10294453c75430bcb339",
+    f"https://github.com/JohnnyMorganz/luau-lsp/releases/download/{LUAU_LSP_VERSION}/luau-lsp-macos.zip":
+        "e32a71823ee47471d931a03e4186ced2b4c43bb785c8fe05de901fe54c6ebe21",
+    f"https://github.com/JohnnyMorganz/luau-lsp/releases/download/{LUAU_LSP_VERSION}/luau-lsp-linux-x86_64.zip":
+        "ddb5fe8fd503bbcb76ee439fbd6522efbfe9f0098be5a233401e493c579fc4a9",
+    f"https://github.com/JohnnyMorganz/luau-lsp/releases/download/{LUAU_LSP_VERSION}/luau-lsp-linux-arm64.zip":
+        "4ab4906dee6041ec23a8b0abdd81c1fdbd770c8c2dcb931e39a33f6790d779f3",
+    # selene 0.31.0 (macos zip serves both arches)
+    f"https://github.com/Kampfkarren/selene/releases/download/{SELENE_VERSION}/selene-{SELENE_VERSION}-windows.zip":
+        "c5d5d087daa8e38bd71680b2202a407e5d4bc00fd584a648dec17ef9b29a2b73",
+    f"https://github.com/Kampfkarren/selene/releases/download/{SELENE_VERSION}/selene-{SELENE_VERSION}-macos.zip":
+        "67f644e57e14ccb74a0c272bc44af0dc7909d8bdff58e4e59bb3524717da5741",
+    f"https://github.com/Kampfkarren/selene/releases/download/{SELENE_VERSION}/selene-{SELENE_VERSION}-linux.zip":
+        "dac452422747999ec4919bbb8bb52992b66aae533b60022bf005669de8616671",
+    # stylua 2.5.2
+    f"https://github.com/JohnnyMorganz/StyLua/releases/download/v{STYLUA_VERSION}/stylua-windows-x86_64.zip":
+        "e77d0ea1226b8b389b43f702240091249a96eea25857281f90ea24d0eb9eb969",
+    f"https://github.com/JohnnyMorganz/StyLua/releases/download/v{STYLUA_VERSION}/stylua-macos-aarch64.zip":
+        "92ff0889e16324801bc072692974bb67f8161e62010fc90f96c62a17f81f32c7",
+    f"https://github.com/JohnnyMorganz/StyLua/releases/download/v{STYLUA_VERSION}/stylua-macos-x86_64.zip":
+        "53c50a1605d0a6345d160a1a5a21db40bcf2bf9cd23c17f7c277a63a1bff3a7f",
+    f"https://github.com/JohnnyMorganz/StyLua/releases/download/v{STYLUA_VERSION}/stylua-linux-x86_64.zip":
+        "bcb0d855e91f102f28a370e850f8566b3b44b79e6274d806ea5246837c0fd5ab",
+    f"https://github.com/JohnnyMorganz/StyLua/releases/download/v{STYLUA_VERSION}/stylua-linux-aarch64.zip":
+        "0ef2ebf0b7e5a652b65c4cb96c6d9ffb3981a98547de3c764465bbf54a8d761a",
+}
 
 
 def _platform() -> tuple[str, str]:
@@ -101,7 +139,7 @@ def _download(url: str, dest: Path, timeout: int = 60, min_size: int = 1024) -> 
     than min_size bytes is treated as a failure (error page / empty body),
     since real tool binaries and defs are always >1KB.
     """
-    req = urllib.request.Request(url, headers={"User-Agent": "trua/plugin"})
+    req = urllib.request.Request(url, headers={"User-Agent": "luaudit/plugin"})
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_name(dest.name + f".tmp-{os.getpid()}")
     try:
@@ -135,6 +173,15 @@ def _download_and_extract_zip(url: str, dest_dir: Path) -> None:
     stage = dest_dir.parent / f".stage-{dest_dir.name}-{os.getpid()}"
     try:
         _download(url, tmp_path)
+        expected = SHA256_PINS.get(url)
+        if expected is None:
+            raise RuntimeError(f"no SHA256 pin registered for {url}; refusing to install unverified binaries")
+        h = hashlib.sha256()
+        with open(tmp_path, "rb") as f:
+            for chunk in iter(lambda: f.read(65536), b""):
+                h.update(chunk)
+        if h.hexdigest() != expected:
+            raise RuntimeError(f"SHA256 mismatch for {url}: expected {expected}, got {h.hexdigest()}")
         with zipfile.ZipFile(tmp_path) as zf:
             # Reject zip-slip (members escaping the target dir) outright.
             for info in zf.infolist():
@@ -277,7 +324,7 @@ def _find_config(start_dir: str, config_names: tuple[str, ...]) -> str | None:
 
 
 # ---------------------------------------------------------------------------
-# Parsers (mirror of trua.parsers)
+# Parsers (mirror of luaudit.parsers)
 # ---------------------------------------------------------------------------
 
 _LUAU_LSP_RE = re.compile(
@@ -353,7 +400,7 @@ def _merge(diags: list[dict]) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
-# Runners (mirror of trua.runners)
+# Runners (mirror of luaudit.runners)
 # ---------------------------------------------------------------------------
 
 def _run(cmd: list[str], cwd: str | None = None, timeout: int = 60) -> tuple[str, str, int]:
@@ -409,8 +456,8 @@ def check_file(filepath: str) -> list[dict]:
     if not luau_lsp.exists() or not defs.exists():
         all_diags.append({
             "file": filepath, "line": 1, "column": 1, "code": "InternalError",
-            "severity": "error", "source": "trua",
-            "message": "trua toolchain missing (luau-lsp or defs); run the trua CLI once to bootstrap",
+            "severity": "error", "source": "luaudit",
+            "message": "luaudit toolchain missing (luau-lsp or defs); run the luaudit CLI once to bootstrap",
         })
         return all_diags
 
@@ -514,7 +561,7 @@ def check_paths(paths: list[str], cwd: str = ".") -> dict:
     if missing:
         diags = [{
             "file": t, "line": 0, "column": 0, "code": "NoSuchFile",
-            "severity": "error", "source": "trua",
+            "severity": "error", "source": "luaudit",
             "message": f"path does not exist: {t}",
         } for t in missing]
         return _result(diags)
@@ -540,9 +587,13 @@ def _hook_event_file(event: dict) -> str | None:
     """Extract the written Luau file from a harness hook event.
 
     Claude: Write|Edit|MultiEdit carry tool_input.file_path.
-    Codex:  writes arrive as Bash commands. Only shell write-redirections
-            (`> path`, `>> path`, `sed -i ... path`) count; stderr
-            redirections (`2>`) and read-only commands are NOT writes.
+    Codex:  writes arrive as Bash/shell commands. Detected forms: shell
+            write-redirections (`> path`, `>> path`), `sed -i ... path`,
+            PowerShell write cmdlets, .NET File APIs, `apply_patch`
+            heredocs (codex's native edit format), `tee <file>`, and
+            python one-liners (`open(p,'w')`, `Path(p).write_text`).
+            stderr redirections (`2>`) and read-only commands are NOT
+            writes.
     MCP:    Studio-bridge tools (edit_script, execute_luau, update_script)
             edit scripts that exist only in Studio; the mirror plugin
             materializes them, and the hook routes to mirror mode.
@@ -635,6 +686,37 @@ def _hook_event_file(event: dict) -> str | None:
             p = m.group(1).strip("'\"")
             if p and _is_luau(p):
                 return p
+        # 5. apply_patch heredoc (codex's native edit format):
+        #    apply_patch <<'PATCH' ... *** Update File: src/x.luau ... PATCH
+        for m in re.finditer(r"\*\*\* (?:Add|Update|Delete) File:[ \t]+([^\r\n]+)", cmd):
+            p = m.group(1).strip("'\" \t")
+            if _is_luau(p):
+                return p
+        # 6. tee: writes to every file argument (`cat a | tee b.luau`,
+        #    `printf .. | tee -a b.luau`). Not preceded by a path separator
+        #    so `/usr/bin/tee`-style paths don't false-match the keyword.
+        for m in re.finditer(r"(?<![/\w])tee\b((?:\s+(?:-\w+|'(?:[^']*)'|\"(?:[^\"]*)\"|[^\s;|&]+))*)", cmd):
+            for tok in m.group(1).split():
+                p = tok.strip("'\"")
+                if p.startswith("-"):
+                    continue
+                if _is_luau(p):
+                    return p
+        # 7. python one-liners: open('x.luau','w') / Path('x.luau').write_text(...)
+        for m in re.finditer(
+            r"(?i)\bopen\s*\(\s*('(?:[^']*\.(?:luau|lua))'|\"(?:[^\"]*\.(?:luau|lua))\")\s*,\s*['\"]([wa])",
+            cmd,
+        ):
+            p = m.group(1).strip("'\"")
+            if p and _is_luau(p):
+                return p
+        for m in re.finditer(
+            r"(?i)\bPath\s*\(\s*('(?:[^']*\.(?:luau|lua))'|\"(?:[^\"]*\.(?:luau|lua))\")\s*\)\s*\.\s*write_(?:text|bytes)",
+            cmd,
+        ):
+            p = m.group(1).strip("'\"")
+            if p and _is_luau(p):
+                return p
         return None
 
     return None
@@ -659,7 +741,7 @@ def run_hook() -> int:
             f"{d['file']}:{d['line']}:{d['column']}: [{d['severity'].upper()}] {d['code']} {d['message']}"
             for d in diags
         ]
-        ctx = "trua diagnostics (mirrored Studio tree):\n" + "\n".join(lines)
+        ctx = "luaudit diagnostics (mirrored Studio tree):\n" + "\n".join(lines)
         print(json.dumps({
             "hookSpecificOutput": {
                 "hookEventName": "PostToolUse",
@@ -680,7 +762,7 @@ def run_hook() -> int:
         f"{d['file']}:{d['line']}:{d['column']}: [{d['severity'].upper()}] {d['code']} {d['message']}"
         for d in diags
     ]
-    ctx = "trua diagnostics:\n" + "\n".join(lines)
+    ctx = "luaudit diagnostics:\n" + "\n".join(lines)
     print(json.dumps({
         "hookSpecificOutput": {
             "hookEventName": "PostToolUse",
@@ -731,9 +813,9 @@ def _find_studio_settings() -> str | None:
 
 
 def _read_mirror_payload(settings_path: str) -> dict | None:
-    """Read the trua mirror payload from the plugin settings.json.
+    """Read the luaudit mirror payload from the plugin settings.json.
 
-    The plugin stores one JSON string under the key 'trua-mirror-v1'.
+    The plugin stores one JSON string under the key 'luaudit-mirror-v1'.
     The settings.json itself is a JSON map of key -> value; the value is a
     JSON-encoded string containing {sources: {rel: source}, tree: {...}}.
     """
@@ -742,7 +824,7 @@ def _read_mirror_payload(settings_path: str) -> dict | None:
             data = json.load(f)
     except (OSError, json.JSONDecodeError):
         return None
-    blob = data.get("trua-mirror-v1")
+    blob = data.get("luaudit-mirror-v1")
     if not isinstance(blob, str):
         return None
     try:
@@ -866,12 +948,12 @@ def run_mirror(argv: list[str]) -> int:
 
 def run_cli(argv: list[str]) -> int:
     args = list(argv)
-    as_json = False
-    if args and args[0] == "--json":
-        as_json = True
-        args = args[1:]
+    as_json = "--json" in args
+    args = [a for a in args if a != "--json"]
+    strict = "--warnings" in args
+    args = [a for a in args if a != "--warnings"]
     if not args:
-        print("usage: trua_hook.py check [--json] <file|dir> ...", file=sys.stderr)
+        print("usage: luaudit_hook.py check [--json] [--warnings] <file|dir> ...", file=sys.stderr)
         return 2
     result = check_paths(args, cwd=os.getcwd())
     if as_json:
@@ -882,7 +964,11 @@ def run_cli(argv: list[str]) -> int:
         s = result["summary"]
         if s["total"]:
             print(f"summary: {s['errors']} errors, {s['warnings']} warnings, {s['total']} total")
-    return 1 if result["summary"]["errors"] > 0 else 0
+    if result["summary"]["errors"] > 0:
+        return 1
+    if strict and result["summary"]["warnings"] > 0:
+        return 1
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -892,7 +978,7 @@ def main(argv: list[str] | None = None) -> int:
     if argv and argv[0] == "mirror":
         return run_mirror(argv[1:])
     if argv and argv[0] in ("--help", "-h", "help"):
-        print("trua plugin engine: hook mode (stdin event), 'check [--json] <paths>', or 'mirror [--json] [--check-all]'")
+        print("luaudit plugin engine: hook mode (stdin event), 'check [--json] <paths>', or 'mirror [--json] [--check-all]'")
         return 0
     return run_hook()
 

@@ -1,5 +1,5 @@
 [project]
-name = "trua"
+name = "luaudit"
 version = "1.0.0"
 description = "Automatic Luau diagnostics for AI coding agents. Plugin for Claude Code and Codex (luau-lsp + selene + stylua, zero config)."
 readme = "README.md"
@@ -8,14 +8,14 @@ requires-python = ">=3.11"
 dependencies = []
 
 [project.scripts]
-trua = "trua.cli:main"
+luaudit = "luaudit.cli:main"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/trua"]
+packages = ["src/luaudit"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

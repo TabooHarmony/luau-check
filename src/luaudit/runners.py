@@ -1,6 +1,6 @@
-"""Subprocess wrappers for luau-lsp analyze, selene, stylua, plus audit rules.
+"""Subprocess wrappers for luau-lsp analyze, selene, and stylua.
 
-v2 changes: pure CLI semantics. check_files accepts file or directory paths,
+Pure CLI semantics: check_files accepts file or directory paths,
 prints nothing on clean output (hooks/agents rely on exit code + silence).
 """
 
@@ -209,7 +209,7 @@ def run_stylua_check(filepath: str, project_root: str | None = None,
                 diagnostics.append(Diagnostic(
                     file=diff_file, line=1, column=1, end_line=None, end_column=None,
                     code="StyLuaFormat", severity="warning",
-                    message="Code is not formatted (run trua format to fix)",
+                    message="Code is not formatted (run luaudit format to fix)",
                     source="stylua",
                 ))
     return diagnostics
@@ -252,7 +252,7 @@ def check_files(targets: list[str], cwd: str = ".") -> dict:
                     "line": 0,
                     "column": 0,
                     "severity": "error",
-                    "source": "trua",
+                    "source": "luaudit",
                     "code": "NoSuchFile",
                     "message": f"path does not exist: {t}",
                 }

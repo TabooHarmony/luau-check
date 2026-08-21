@@ -1,9 +1,9 @@
 ---
-name: trua
+name: luaudit
 description: Run Luau type checking and linting (luau-lsp + selene) on Luau files when working on Roblox or Luau code. Use after editing .luau or .lua files to catch type errors and lint issues early.
 ---
 
-# trua
+# luaudit
 
 Advisory Luau diagnostics for Roblox and Luau development. After editing
 Luau code, verify it before declaring work complete.
@@ -13,13 +13,13 @@ Luau code, verify it before declaring work complete.
 Run on a file or directory:
 
 ```bash
-python3 "<PLUGIN_ROOT>/scripts/trua_hook.py" check <file-or-directory>
+python3 "<PLUGIN_ROOT>/scripts/luaudit_hook.py" check <file-or-directory>
 ```
 
-Or, if the `trua` CLI is installed:
+Or, if the `luaudit` CLI is installed:
 
 ```bash
-trua check <file-or-directory>
+luaudit check <file-or-directory>
 ```
 
 - Exit 0 with no output means the code is clean.
@@ -38,4 +38,4 @@ Clean edits stay silent.
 - Lint issues via selene (Roblox standard)
 - Formatting via StyLua (advisory warning)
 
-The toolchain is downloaded once on first use into `~/.trua/`.
+The toolchain is downloaded once on first use into `~/.luaudit/`.

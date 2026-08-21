@@ -1,16 +1,16 @@
-"""CLI entry point for trua v2.
+"""CLI entry point for luaudit.
 
-The v2 contract is a plain, fast, deterministic CLI that agents call through
+The contract is a plain, fast, deterministic CLI that agents call through
 their own terminal. No MCP server, no always-on process, no LLM turn needed.
 
 Commands:
-    trua check FILE|DIR ...   run luau-lsp + selene, print diagnostics
-    trua format FILE ...      format files in place with stylua
-    trua init                 write default selene/luaurc configs
-    trua doctor               verify toolchain (default no-op happy path)
+    luaudit check FILE|DIR ...   run luau-lsp + selene, print diagnostics
+    luaudit format FILE ...      format files in place with stylua
+    luaudit init                 write default selene/luaurc configs
+    luaudit doctor               verify toolchain (default no-op happy path)
 
 Distribution is plugin-first: install the plugin for Claude Code or Codex
-from the trua marketplace (see README). The CLI remains the engine
+from the luaudit marketplace (see README). The CLI remains the engine
 for on-demand checks.
 """
 
@@ -22,7 +22,6 @@ import sys
 from pathlib import Path
 
 from . import bootstrap
-from .audit import audit_project
 from .runners import check_files
 from .version import __version__
 
@@ -109,20 +108,9 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     return 0
 
 
-def _cmd_audit(args: argparse.Namespace) -> int:
-    result = audit_project(Path(args.dir))
-    if args.json:
-        print(json.dumps(result, indent=2))
-    else:
-        for item in result.get("findings", []):
-            print(f"{item['severity'].upper()} [{item['rule']}] {item['file']}:{item['line']}: {item['message']}")
-        print(f"audit: {len(result.get('findings', []))} findings")
-    return 0
-
-
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        prog="trua",
+        prog="luaudit",
         description="Luau diagnostics for AI coding agents (luau-lsp + selene + stylua).",
     )
     sub = parser.add_subparsers(dest="command", required=True)
@@ -141,10 +129,6 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("doctor", help="verify toolchain")
     sub.add_parser("version", help="print version")
 
-    p_audit = sub.add_parser("audit", help="static security audit of Roblox Luau code")
-    p_audit.add_argument("dir", default=".")
-    p_audit.add_argument("--json", action="store_true")
-
     args = parser.parse_args(argv)
     if args.command == "check":
         return _cmd_check(args)
@@ -154,8 +138,6 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_init(args)
     if args.command == "doctor":
         return _cmd_doctor(args)
-    if args.command == "audit":
-        return _cmd_audit(args)
     if args.command == "version":
         print(__version__)
         return 0
