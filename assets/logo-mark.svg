@@ -1,0 +1,11 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <g transform="rotate(15 256 256)">
+    <!-- Left bracket -->
+    <path d="M180 150 H145 V362 H180" stroke="white" stroke-width="24" stroke-linecap="round" stroke-linejoin="round"/>
+    <!-- Exclamation mark -->
+    <path d="M256 165 V285" stroke="white" stroke-width="24" stroke-linecap="round"/>
+    <circle cx="256" cy="332" r="12" fill="white"/>
+    <!-- Right bracket -->
+    <path d="M332 150 H367 V362 H332" stroke="white" stroke-width="24" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+</svg>

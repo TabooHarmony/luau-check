@@ -88,6 +88,16 @@ def _cmd_init(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_sourcemap(args: argparse.Namespace) -> int:
+    from . import sourcemapper
+    out = sourcemapper.generate(args.dir, args.output)
+    if not out["ok"]:
+        print(out["error"], file=sys.stderr)
+        return 2
+    print(f"wrote {out['output']} ({out['scripts']} scripts)")
+    return 0
+
+
 def _cmd_doctor(args: argparse.Namespace) -> int:
     bootstrap.ensure_tools()
     if getattr(args, "bug_report", False):
@@ -138,10 +148,15 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
 
 def _cmd_plugin(args: argparse.Namespace) -> int:
     if args.action == "install":
-        out = plugin_mod.install(yes=args.yes)
+        out = plugin_mod.install(yes=args.yes,
+                                 root=getattr(args, "root", ".") or ".",
+                                 force_mode=getattr(args, "mirror_mode", None))
         print(f"{out['note']}: {out['path']}")
-        if out.get("restart_note"):
-            print(out["restart_note"])
+        if out.get("mode"):
+            print(f"mirror-mode: {out['mode']}")
+        for key in ("restart_note", "standdown_note", "ask_note"):
+            if out.get(key):
+                print(out[key])
         return 0 if out["installed"] else 2
     if args.action == "remove":
         out = plugin_mod.remove()
@@ -150,7 +165,7 @@ def _cmd_plugin(args: argparse.Namespace) -> int:
     # status (default when no action given)
     st = plugin_mod.status()
     for k in ("engine_version", "engine_schema", "plugins_dir", "installed",
-              "schema", "up_to_date"):
+              "schema", "up_to_date", "mode"):
         print(f"{k}: {st[k]}")
     if st["note"]:
         print(f"note: {st['note']}")
@@ -175,6 +190,12 @@ def main(argv: list[str] | None = None) -> int:
     p_fmt.add_argument("--cwd", default=".")
 
     sub.add_parser("init", help="write default selene.toml and .luaurc")
+    p_sm = sub.add_parser("sourcemap",
+                          help="generate a sourcemap.json for a Script Sync / plain directory tree")
+    p_sm.add_argument("dir", nargs="?", default=".",
+                      help="directory whose .luau/.lua tree to map (default: cwd)")
+    p_sm.add_argument("--output", default=None,
+                      help="output path (default: <dir>/sourcemap.json)")
     p_doctor = sub.add_parser("doctor", help="verify toolchain and studio mirror plugin")
     p_doctor.add_argument("--bug-report", action="store_true", dest="bug_report",
                           help="print a paste-ready environment + failure log report")
@@ -183,6 +204,11 @@ def main(argv: list[str] | None = None) -> int:
                           choices=("install", "remove", "status"))
     p_plugin.add_argument("--yes", action="store_true", dest="yes",
                           help="reinstall even if already up to date; required for non-interactive runs")
+    p_plugin.add_argument("--mirror-mode", dest="mirror_mode", default=None,
+                          choices=("mirror", "external", "ask"),
+                          help="skip auto-detection and force the mirror mode")
+    p_plugin.add_argument("--root", default=".",
+                          help="project directory to probe for existing sync tools (default: cwd)")
     sub.add_parser("version", help="print version")
 
     args = parser.parse_args(argv)
@@ -192,6 +218,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_format(args)
     if args.command == "init":
         return _cmd_init(args)
+    if args.command == "sourcemap":
+        return _cmd_sourcemap(args)
     if args.command == "doctor":
         return _cmd_doctor(args)
     if args.command == "plugin":

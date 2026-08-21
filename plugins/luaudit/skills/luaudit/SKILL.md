@@ -39,3 +39,16 @@ Clean edits stay silent.
 - Formatting via StyLua (advisory warning)
 
 The toolchain is downloaded once on first use into `~/.luaudit/`.
+
+## Script Sync users
+
+If the project's Luau files come from Roblox Studio Script Sync there is no
+sourcemap, so `require()`s cannot resolve across files. One command fixes
+that without installing Rojo:
+
+```bash
+luaudit sourcemap path/to/synced/tree
+```
+
+Run it once per session after syncing; it writes a `sourcemap.json` next to
+the scripts.

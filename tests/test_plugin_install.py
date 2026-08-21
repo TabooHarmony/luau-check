@@ -55,16 +55,18 @@ def fake_plugins_dir(tmp_path, monkeypatch):
     return d
 
 
-def test_install_copy_is_byte_identical(fake_plugins_dir):
-    out = plugin.install(yes=True)
+def test_install_copy_is_byte_identical(fake_plugins_dir, tmp_path):
+    # Empty project root => detection says "studio" => mode "mirror",
+    # which equals the bundled artifact byte for byte.
+    out = plugin.install(yes=True, root=str(tmp_path))
     target = fake_plugins_dir / plugin.PLUGIN_FILENAME
     assert out["installed"] is True
     assert target.read_bytes() == plugin.bundled_plugin_path().read_bytes()
 
 
-def test_install_idempotent_when_current(fake_plugins_dir):
-    plugin.install(yes=True)
-    again = plugin.install()  # no consent needed: nothing to write
+def test_install_idempotent_when_current(fake_plugins_dir, tmp_path):
+    plugin.install(yes=True, root=str(tmp_path))
+    again = plugin.install(root=str(tmp_path))  # no consent needed: nothing to write
     assert again["note"] == "already up to date"
     assert again["installed"] is True
 
@@ -192,13 +194,14 @@ def test_built_wheel_carries_artifact(tmp_path):
 # CLI surface
 # ---------------------------------------------------------------------------
 
-def test_cli_plugin_roundtrip(fake_plugins_dir, capsys):
+def test_cli_plugin_roundtrip(fake_plugins_dir, capsys, tmp_path):
     from luaudit.cli import main
-    assert main(["plugin", "install", "--yes"]) == 0
+    assert main(["plugin", "install", "--yes", "--root", str(tmp_path)]) == 0
     assert main(["plugin", "status"]) == 0
     captured = capsys.readouterr().out
     assert "engine_version:" in captured
     assert "up_to_date: True" in captured
+    assert "mode: mirror" in captured
     assert main(["plugin", "remove"]) == 0
 
 

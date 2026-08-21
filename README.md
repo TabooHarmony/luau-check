@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo.svg" alt="luaudit" width="160">
+</p>
+
 # luaudit
 
 [![CI](https://github.com/TabooHarmony/luaudit/actions/workflows/ci.yml/badge.svg)](https://github.com/TabooHarmony/luaudit/actions/workflows/ci.yml)
@@ -100,10 +104,30 @@ reports done. Nobody ran a linter by hand at any point.
 
 ## Studio mirror
 
-For workflows where scripts live only inside Studio (MCP bridges and similar),
-luaudit ships a silent companion plugin that mirrors the script tree to disk
-every few seconds so the hook can check it. One-way: it never writes back into
-Studio.
+For workflows where scripts live only inside Studio (MCP bridges and
+similar), luaudit ships a silent companion plugin that mirrors the script
+tree to disk every few seconds so the hook can check it. One-way: it never
+writes back into Studio.
+
+Already syncing with Rojo, Argon, Azul, or Script Sync? Nothing changes.
+`luaudit plugin install` detects your setup and installs the mirror in an
+idle mode, so it never forks your project into two copies; the hook checks
+your real files directly. Disagree with the detection? Force it:
+
+```
+luaudit plugin install --yes --mirror-mode mirror   # or external / ask
+```
+
+Using plain Script Sync? Your files are on disk but no sourcemap comes with
+them, so cross-file type checking stays off by default. Generate one
+without adopting Rojo:
+
+```
+luaudit sourcemap path/to/synced/tree
+```
+
+That writes a `sourcemap.json` next to your scripts and require()s start
+resolving across files.
 
 Install it with the engine (keeps versions matched):
 
@@ -149,6 +173,6 @@ Roblox's API dumps and hosted at
 
 ## License
 
-MIT. Independent project, not affiliated with or endorsed by Roblox or the
+MPL-2.0. Independent project, not affiliated with or endorsed by Roblox or the
 projects above or their maintainers. Luau is a trademark of Roblox
 Corporation.

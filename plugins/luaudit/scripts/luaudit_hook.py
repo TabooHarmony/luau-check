@@ -809,6 +809,22 @@ def _hook_event_file(event: dict) -> str | None:
 
 MIRROR_SCHEMA = "luaudit-mirror-v1"
 _NAG_SCHEMA_RE = re.compile(r"(luaudit-mirror-v\d+)")
+
+# Mirrors the engine-side mode token (src/luaudit/plugin.py). An installed
+# artifact whose mode is external/ask is *deliberately* idle, never stale
+# behavior to nag about.
+_NAG_MODE_RE = re.compile(r"--LUAUDIT-MODE=(\S+)")
+
+# Project files that mark an externally-managed (Rojo-style) workflow.
+# When these sit near the edited file, Studio-only scripts are not the
+# user's situation and the mirror nag would be noise.
+_NAG_MARKER_FILES = (
+    "default.project.json",
+    "argon.project.json",
+    "azul.toml",
+    ".azulrc",
+)
+
 NAG_INTERVAL = 24 * 60 * 60
 _NAG_TEXT = (
     "[luaudit] your Roblox Studio mirror plugin is missing or stale. "
@@ -840,10 +856,50 @@ def _installed_mirror_ok() -> bool:
     return bool(m and m.group(1) == MIRROR_SCHEMA)
 
 
-def _plugin_nag(now: float | None = None) -> str:
+def _installed_mirror_idle() -> bool:
+    """True when an installed artifact is deliberately idle (external/ask)."""
+    home = Path.home()
+    if sys.platform == "win32":
+        base = Path(os.environ.get("LOCALAPPDATA", str(home / "AppData" / "Local")))
+        pdir = base / "Roblox" / "Plugins"
+    elif sys.platform == "darwin":
+        pdir = home / "Documents" / "Roblox" / "Plugins"
+    else:
+        pdir = home / ".local" / "share" / "Roblox" / "Plugins"
+    target = pdir / "luaudit-mirror.rbxmx"
+    if not target.is_file():
+        return False
+    try:
+        text = target.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    m = _NAG_MODE_RE.search(text)
+    return bool(m and m.group(1) in ("external", "ask"))
+
+
+def _external_sync_near(filepath: str) -> bool:
+    """True when a sync-tool marker sits near the edited file."""
+    try:
+        current = Path(filepath).resolve().parent
+        for _ in range(6):
+            for name in _NAG_MARKER_FILES:
+                if (current / name).exists():
+                    return True
+            if current.parent == current:
+                break
+            current = current.parent
+    except OSError:
+        pass
+    return False
+
+
+def _plugin_nag(now: float | None = None, filepath: str | None = None) -> str:
     """Return the nag text when due, else ''. Never raises."""
     try:
-        if _installed_mirror_ok():
+        if _installed_mirror_ok() or _installed_mirror_idle():
+            return ""
+        if filepath and _external_sync_near(filepath):
+            # Rojo/Argon/Azul-style project: the mirror is irrelevant here.
             return ""
         now = time.time() if now is None else now
         stamp = CACHE_DIR / "plugin-nag.json"
@@ -883,7 +939,7 @@ def run_hook() -> int:
             for d in diags
         ]
         ctx = "luaudit diagnostics (mirrored Studio tree):\n" + "\n".join(lines)
-        nag = _plugin_nag()
+        nag = _plugin_nag(filepath=filepath)
         if nag:
             ctx = ctx + "\n\n" + nag
         print(json.dumps({
@@ -907,7 +963,7 @@ def run_hook() -> int:
         for d in diags
     ]
     ctx = "luaudit diagnostics:\n" + "\n".join(lines)
-    nag = _plugin_nag()
+    nag = _plugin_nag(filepath=filepath)
     if nag:
         ctx = ctx + "\n\n" + nag
     print(json.dumps({

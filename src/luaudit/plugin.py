@@ -16,14 +16,22 @@ from __future__ import annotations
 
 import os
 import re
-import shutil
 import sys
 from pathlib import Path
 
+from . import coexist
 from .version import __version__
 
 PLUGIN_FILENAME = "luaudit-mirror.rbxmx"
 CURRENT_SCHEMA = "luaudit-mirror-v1"
+
+# The install-time workspace verdict is baked into the artifact as this
+# exact token line inside the plugin Source. The Studio-side script reads
+# its own Source and obeys: "external" stands down entirely, "ask" stays
+# idle with an explanation plus a one-click opt-in in the Plugins menu,
+# anything else mirrors unconditionally.
+MODE_MARKER = "--LUAUDIT-MODE="
+_VALID_MODES = ("mirror", "external", "ask")
 
 _SCHEMA_RE = re.compile(r"(luaudit-mirror-v\d+)")
 
@@ -66,6 +74,32 @@ def _read_schema(path: Path) -> str | None:
     return m.group(1) if m else None
 
 
+def _read_mode(path: Path) -> str | None:
+    """Read the baked-in mode line from an artifact's Source."""
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    m = re.search(re.escape(MODE_MARKER) + r"(\S+)", text)
+    return m.group(1) if m else None
+
+
+def _artifact_for_mode(mode: str) -> str:
+    """Artifact text with the mode line rewritten for this install.
+
+    Decodes bytes manually (no universal-newline translation) so the
+    artifact's CRLF line endings survive the round trip untouched.
+    """
+    text = bundled_plugin_path().read_bytes().decode("utf-8")
+    replacement = MODE_MARKER + mode
+    new, n = re.subn(re.escape(MODE_MARKER) + r"\S+", replacement.replace("\\", "\\\\"), text, count=1)
+    if n != 1:
+        # Bundled artifact lacks the marker (older checkout): append it to
+        # the Source so Studio-side gating still works.
+        new = text.rstrip("\r\n") + "\r\n" + replacement + "\r\n"
+    return new
+
+
 def status() -> dict:
     """Compare the installed mirror artifact against this engine build."""
     bundled = bundled_plugin_path()
@@ -78,6 +112,7 @@ def status() -> dict:
         "installed": installed.is_file(),
         "up_to_date": False,
         "schema": None,
+        "mode": None,
         "note": "",
     }
     if not installed.is_file():
@@ -85,6 +120,7 @@ def status() -> dict:
         return out
     schema = _read_schema(installed)
     out["schema"] = schema
+    out["mode"] = _read_mode(installed)
     if not out["bundled_present"]:
         # Dev/checkout install without wheel data: compare against known key.
         out["up_to_date"] = schema == CURRENT_SCHEMA
@@ -102,8 +138,14 @@ def status() -> dict:
     return out
 
 
-def install(yes: bool = False) -> dict:
+def install(yes: bool = False, root: str = ".", force_mode: str | None = None) -> dict:
     """Copy the bundled artifact into the plugins folder.
+
+    Before writing anything, the workspace is probed for an existing disk
+    sync (Rojo/Argon/Azul/Script Sync markers). The verdict is baked into
+    the installed artifact so the Studio-side script knows whether to
+    mirror, stand down, or ask once. ``force_mode`` overrides detection
+    (for ``--mirror-mode``).
 
     Idempotent: an already-current install is left untouched. When a write
     is actually needed, consent applies: ``yes=True`` proceeds silently
@@ -116,9 +158,21 @@ def install(yes: bool = False) -> dict:
     if not bundled.is_file():
         return {"installed": False, "path": str(target),
                 "note": "bundled luaudit-mirror.rbxmx missing from this install (pip data files stripped?)"}
+    if force_mode is not None:
+        if force_mode not in _VALID_MODES:
+            return {"installed": False, "path": str(target),
+                    "note": f"invalid mode {force_mode!r} (choose from: {', '.join(_VALID_MODES)})"}
+        mode = force_mode
+        reason = "mode forced via --mirror-mode"
+    else:
+        verdict = coexist.detect(root)
+        mode = {"external": "external", "studio": "mirror", "unknown": "ask"}[verdict["mode"]]
+        reason = "; ".join(verdict["reasons"]) or verdict["mode"]
     st = status()
-    if st["installed"] and st["up_to_date"]:
-        return {"installed": True, "path": str(target), "note": "already up to date"}
+    st["mode"] = _read_mode(target) if st["installed"] else None
+    if st["installed"] and st["up_to_date"] and st["mode"] == mode:
+        return {"installed": True, "path": str(target), "mode": mode,
+                "note": "already up to date"}
     verb = "update" if st["installed"] else "install"
     if not yes:
         # Ask only on a readable interactive terminal. isatty() lies on some
@@ -134,17 +188,29 @@ def install(yes: bool = False) -> dict:
             reply = None
         if reply is None:
             return {"installed": False, "path": str(target), "needs_yes": True,
+                    "mode": mode,
                     "note": f"non-interactive shell: re-run with --yes to {verb} "
                             "(or run it yourself in a terminal)"}
         if reply.strip().lower() not in ("y", "yes"):
             return {"installed": False, "path": str(target), "note": "declined"}
     target.parent.mkdir(parents=True, exist_ok=True)
     tmp = target.with_name(target.name + ".tmp")
-    shutil.copyfile(bundled, tmp)
+    tmp.write_bytes(_artifact_for_mode(mode).encode("utf-8"))
     os.replace(tmp, target)
-    return {"installed": True, "path": str(target),
-            "note": f"{verb}ed",
-            "restart_note": "restart Roblox Studio to load it"}
+    out = {"installed": True, "path": str(target), "mode": mode,
+           "note": f"{verb}ed ({reason})",
+           "restart_note": "restart Roblox Studio to load it"}
+    if mode == "external":
+        out["standdown_note"] = (
+            "existing sync detected: the mirror will stay idle and your own "
+            "tool's files remain the ones checked"
+        )
+    elif mode == "ask":
+        out["ask_note"] = (
+            "luau files exist on disk without a known sync tool; the plugin "
+            "will ask once inside Studio whether they are externally synced"
+        )
+    return out
 
 
 def remove() -> dict:

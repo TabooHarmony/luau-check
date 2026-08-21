@@ -28,12 +28,37 @@
 -- - Stores the whole tree + sources as ONE JSON string under one key
 --   (avoids the backslash/newline/quote restrictions on individual keys).
 -- - Polls the tree every ~2s and writes only when it changed.
+--
+-- COEXISTENCE: `luaudit plugin install` probes your project for an
+-- existing disk sync (Rojo/Argon/Azul/Script Sync) and bakes the verdict
+-- into the LUAUDIT-MODE line below. "external" = files already managed on
+-- disk: this plugin stays idle so it can never fork your project.
+-- "ask" = luau files exist but no known sync tool: the Output explains
+-- why mirroring is off and Plugins gains a one-click "start mirror".
+-- Anything else mirrors normally.
+--LUAUDIT-MODE=mirror
 
 local Plugin = plugin
 local HttpService = game:GetService("HttpService")
 local RunService = game:GetService("RunService")
 
 local SETTINGS_KEY = "luaudit-mirror-v1"
+
+-- Read our own Source and extract the baked-in mode ("mirror",
+-- "external", or "ask"). Defaults to "mirror" if unreadable, which is
+-- the historical behavior for hand-installed copies.
+local function bakedMode(): string
+	local ok, src = pcall(function()
+		return (script :: any).Source
+	end)
+	if not ok or type(src) ~= "string" then
+		return "mirror"
+	end
+	return src:match("%-%-LUAUDIT%-MODE=(%S+)") or "mirror"
+end
+
+-- Persisted nothing: mode decisions come baked from the installer; the
+-- only runtime escape hatch is the Plugins-menu button below.
 
 -- Instance classes we mirror as files.
 local SCRIPT_CLASSES = {
@@ -158,32 +183,80 @@ local function scheduleWrite()
 	end)
 end
 
--- Poll the tree every ~2s and write only when it changed. Frame counting
--- uses a Heartbeat accumulator: RunService has no GetFrameNumber API.
-local lastPayload: string? = nil
-local secondsSincePoll = 0
-RunService.Heartbeat:Connect(function(deltaTime: number)
-	secondsSincePoll += deltaTime
-	if secondsSincePoll < 2 then
+-- Mirroring loop: poll the tree every ~2s and write only when it changed.
+-- Frame counting uses a Heartbeat accumulator: RunService has no
+-- GetFrameNumber API. Guarded by `running` so the Plugins-menu button can
+-- start it mid-session.
+local running = false
+local function startMirroring()
+	if running then
 		return
 	end
-	secondsSincePoll = 0
-	local ok, now = pcall(buildPayload)
-	if not ok then
-		warn("luaudit mirror: buildPayload failed: " .. tostring(now))
-		return
-	end
-	if now ~= lastPayload then
-		lastPayload = now
+	running = true
+	local lastPayload: string? = nil
+	local secondsSincePoll = 0
+	RunService.Heartbeat:Connect(function(deltaTime: number)
+		if not running then
+			return
+		end
+		secondsSincePoll += deltaTime
+		if secondsSincePoll < 2 then
+			return
+		end
+		secondsSincePoll = 0
+		local ok, now = pcall(buildPayload)
+		if not ok then
+			warn("luaudit mirror: buildPayload failed: " .. tostring(now))
+			return
+		end
+		if now ~= lastPayload then
+			lastPayload = now
+			scheduleWrite()
+		end
+	end)
+	-- Initial mirror (after a short delay so the tree is ready).
+	task.delay(2, function()
+		lastPayload = buildPayload()
 		scheduleWrite()
-	end
+	end)
+end
+
+-- Mode gate, decided once at startup from the baked-in mode line that
+-- `luaudit plugin install` wrote:
+--   mirror   -> normal operation (default for hand-installed copies)
+--   external -> idle forever: your files already live on disk and the
+--               hook checks them there; mirroring would fork the project
+--   ask      -> same idle behavior, but with an explicit reason plus a
+--               one-click "luaudit: start mirror" entry under Plugins
+--               (Studio has no scriptable yes/no dialog, so we say why
+--               instead of asking)
+local mode = bakedMode()
+
+if mode ~= "mirror" then
+	print(
+		(
+			"[luaudit] mirror is idle (%s): Luau files were found on disk, so "
+			.. "the hook checks those directly. To mirror Studio scripts anyway, "
+			.. "use Plugins > luaudit: start mirror."
+		):format(mode)
+	)
+end
+
+pcall(function()
+	local action = plugin:CreatePluginAction(
+		"luauditStartMirror",
+		"luaudit: start mirror",
+		"Start mirroring the Studio script tree so luaudit can check it"
+	)
+	action.Triggered:Connect(function()
+		startMirroring()
+		print("[luaudit] mirroring started")
+	end)
 end)
 
--- Initial mirror on load (after a short delay so the tree is ready).
-task.delay(2, function()
-	lastPayload = buildPayload()
-	scheduleWrite()
-end)
+if mode == "mirror" then
+	startMirroring()
+end
 ]]></string>
       </Properties>
 </Item>
