@@ -198,7 +198,7 @@ def install(yes: bool = False, root: str = ".", force_mode: str | None = None) -
     tmp.write_bytes(_artifact_for_mode(mode).encode("utf-8"))
     os.replace(tmp, target)
     out = {"installed": True, "path": str(target), "mode": mode,
-           "note": f"{verb}ed ({reason})",
+           "note": f"{verb}d ({reason})",
            "restart_note": "restart Roblox Studio to load it"}
     if mode == "external":
         out["standdown_note"] = (
