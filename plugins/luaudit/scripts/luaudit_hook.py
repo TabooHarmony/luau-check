@@ -46,6 +46,26 @@ BIN_DIR = CACHE_DIR / "bin"
 DEFS_DIR = CACHE_DIR / "defs"
 CONFIG_DIR = CACHE_DIR / "config"
 
+# Failure log (mirror of luaudit.bootstrap): appended on bootstrap/tool
+# failures so a failing user has one artifact to report.
+LOG_FILENAME = "luaudit.log"
+LOG_MAX_BYTES = 512 * 1024
+
+
+def _log_event(message: str) -> None:
+    """Append a timestamped line to the failure log. Best-effort, never raises."""
+    try:
+        CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        path = CACHE_DIR / LOG_FILENAME
+        if path.exists() and path.stat().st_size > LOG_MAX_BYTES:
+            data = path.read_bytes()[-LOG_MAX_BYTES // 2:]
+            path.write_bytes(data)
+        stamp = time.strftime("%Y-%m-%dT%H:%M:%S")
+        with open(path, "a", encoding="utf-8", errors="replace") as f:
+            f.write(f"{stamp} {message}\n")
+    except Exception:
+        pass
+
 DEFS_URL = "https://luau-lsp.pages.dev/type-definitions/globalTypes.d.luau"
 DEFS_FILENAME = "globalTypes.d.luau"
 
@@ -226,24 +246,32 @@ def ensure_tools() -> bool:
     if not luau_lsp.exists():
         try:
             _download_and_extract_zip(urls["luau-lsp"], BIN_DIR)
-        except Exception:
+        except Exception as e:
+            _log_event(f"ERROR luau-lsp download failed: {e}")
             return False
         if not luau_lsp.exists():
+            _log_event("ERROR luau-lsp binary not found after extraction")
             return False
 
     selene = BIN_DIR / _exe("selene")
     if not selene.exists():
         try:
             _download_and_extract_zip(urls["selene"], BIN_DIR)
-        except Exception:
-            pass
+        except Exception as e:
+            _log_event(f"WARNING selene download failed: {e}, linting skipped")
+        else:
+            if not selene.exists():
+                _log_event("WARNING selene binary missing after install, linting skipped")
 
     stylua = BIN_DIR / _exe("stylua")
     if not stylua.exists():
         try:
             _download_and_extract_zip(urls["stylua"], BIN_DIR)
-        except Exception:
-            pass
+        except Exception as e:
+            _log_event(f"WARNING stylua download failed: {e}, formatting skipped")
+        else:
+            if not stylua.exists():
+                _log_event("WARNING stylua binary missing after install, formatting skipped")
 
     defs = DEFS_DIR / DEFS_FILENAME
     defs_ok = defs.exists() and defs.stat().st_size > 0
@@ -254,8 +282,10 @@ def ensure_tools() -> bool:
         try:
             _download(defs_url(), defs)
             if not defs.exists() or defs.stat().st_size == 0:
+                _log_event("ERROR type definitions download produced an empty file")
                 return False
-        except Exception:
+        except Exception as e:
+            _log_event(f"ERROR type definitions download failed: {e}")
             return False
 
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
@@ -500,6 +530,9 @@ def check_file(filepath: str) -> list[dict]:
     check_target = check_target or filepath
 
     if not luau_lsp.exists() or not defs.exists():
+        _log_event(
+            f"ERROR toolchain missing for {filepath}: luau_lsp={luau_lsp.exists()} defs={defs.exists()}"
+        )
         all_diags.append({
             "file": filepath, "line": 1, "column": 1, "code": "InternalError",
             "severity": "error", "source": "luaudit",
@@ -519,6 +552,7 @@ def check_file(filepath: str) -> list[dict]:
     cmd.append(check_target)
     stdout, stderr, code = _run(cmd, cwd=analyze_cwd, timeout=60)
     if (code == -1 and not stdout) or (code != 0 and not stdout.strip()):
+        _log_event(f"ERROR luau-lsp failed on {filepath} (exit {code}): {stderr.strip() or 'no output'}")
         all_diags.append({
             "file": filepath, "line": 1, "column": 1, "code": "InternalError",
             "severity": "error", "source": "luau-lsp",
@@ -533,6 +567,7 @@ def check_file(filepath: str) -> list[dict]:
                f"--config={project_selene or base_selene}", check_target]
         stdout2, stderr2, code2 = _run(cmd, timeout=60)
         if (code2 == -1 and not stdout2) or (code2 != 0 and not stdout2.strip()):
+            _log_event(f"ERROR selene failed on {filepath} (exit {code2}): {stderr2.strip() or 'no output'}")
             all_diags.append({
                 "file": filepath, "line": 1, "column": 1, "code": "InternalError",
                 "severity": "error", "source": "selene",
@@ -550,6 +585,7 @@ def check_file(filepath: str) -> list[dict]:
         stdout3, stderr3, code3 = _run(cmd, timeout=30)
         if code3 != 0:
             if code3 == -1 and not stdout3:
+                _log_event(f"ERROR stylua failed on {filepath} (exit {code3}): {stderr3.strip()}")
                 all_diags.append({
                     "file": filepath, "line": 1, "column": 1, "code": "InternalError",
                     "severity": "error", "source": "stylua", "message": f"stylua failed: {stderr3}",

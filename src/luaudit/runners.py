@@ -139,6 +139,10 @@ def run_luau_lsp(filepath: str, project_root: str | None = None,
     if (exit_code == -1 and not stdout) or (exit_code != 0 and not stdout.strip()):
         # Missing binary (spawn error) OR tool ran but crashed with no output
         # (corrupted download). Both are toolchain failures, never "clean".
+        bootstrap.log_event(
+            f"ERROR luau-lsp failed on {filepath} (exit {exit_code}): "
+            f"{stderr.strip() or 'no output — toolchain likely broken'}"
+        )
         return [Diagnostic(
             file=filepath, line=1, column=1, end_line=None, end_column=None,
             code="InternalError", severity="error",
@@ -169,6 +173,10 @@ def run_selene(filepath: str, project_root: str | None = None,
 
     stdout, stderr, exit_code = _run(cmd, timeout=60, cwd=cwd)
     if (exit_code == -1 and not stdout) or (exit_code != 0 and not stdout.strip()):
+        bootstrap.log_event(
+            f"ERROR selene failed on {filepath} (exit {exit_code}): "
+            f"{stderr.strip() or 'no output — toolchain likely broken'}"
+        )
         return [Diagnostic(
             file=filepath, line=1, column=1, end_line=None, end_column=None,
             code="InternalError", severity="error",
@@ -195,6 +203,7 @@ def run_stylua_check(filepath: str, project_root: str | None = None,
 
     stdout, stderr, exit_code = _run(cmd, timeout=30, cwd=cwd)
     if exit_code == -1 and not stdout:
+        bootstrap.log_event(f"ERROR stylua failed on {filepath} (exit {exit_code}): {stderr.strip()}")
         return [Diagnostic(
             file=filepath, line=1, column=1, end_line=None, end_column=None,
             code="InternalError", severity="error",

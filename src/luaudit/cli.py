@@ -90,6 +90,24 @@ def _cmd_init(args: argparse.Namespace) -> int:
 
 def _cmd_doctor(args: argparse.Namespace) -> int:
     bootstrap.ensure_tools()
+    if getattr(args, "bug_report", False):
+        st = plugin_mod.status()
+        paths = bootstrap.get_paths()
+        print("luaudit bug report -- copy everything below this line")
+        print(f"luaudit: {__version__}")
+        print(f"python: {sys.version.split()[0]} ({sys.platform})")
+        print(f"platform: {bootstrap._get_platform()}")
+        print(f"cache: {bootstrap.CACHE_DIR}")
+        for name in ("luau_lsp", "selene", "stylua", "defs"):
+            p = paths.get(name)
+            ok = p is not None and p.exists()
+            print(f"{name}: {'ok' if ok else 'missing'} ({p})")
+        print(f"studio-mirror installed: {st['installed']} schema: {st.get('schema')} up_to_date: {st.get('up_to_date')}")
+        print(f"last_error: {bootstrap.last_error() or 'none'}")
+        print("--- luaudit.log tail ---")
+        print(bootstrap.read_log_tail())
+        print("--- end bug report ---")
+        return 0
     paths = bootstrap.get_paths()
     problems: list[str] = []
     for name in ("luau_lsp", "selene", "stylua"):
@@ -157,7 +175,9 @@ def main(argv: list[str] | None = None) -> int:
     p_fmt.add_argument("--cwd", default=".")
 
     sub.add_parser("init", help="write default selene.toml and .luaurc")
-    sub.add_parser("doctor", help="verify toolchain and studio mirror plugin")
+    p_doctor = sub.add_parser("doctor", help="verify toolchain and studio mirror plugin")
+    p_doctor.add_argument("--bug-report", action="store_true", dest="bug_report",
+                          help="print a paste-ready environment + failure log report")
     p_plugin = sub.add_parser("plugin", help="manage the Roblox Studio mirror plugin")
     p_plugin.add_argument("action", nargs="?", default="status",
                           choices=("install", "remove", "status"))

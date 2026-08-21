@@ -20,10 +20,17 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
-CACHE_DIR = Path.home() / ".luaudit"
+# LUAUDIT_HOME overrides the cache location. The plugin hook engine honors
+# the same variable, so tests and sandboxes can redirect both identically.
+CACHE_DIR = Path(os.environ.get("LUAUDIT_HOME", str(Path.home() / ".luaudit")))
 BIN_DIR = CACHE_DIR / "bin"
 DEFS_DIR = CACHE_DIR / "defs"
 CONFIG_DIR = CACHE_DIR / "config"
+
+# Failure log: appended on every bootstrap warning/error so a failing user
+# has one artifact to paste into a bug report (see `luaudit doctor --bug-report`).
+LOG_FILENAME = "luaudit.log"
+LOG_MAX_BYTES = 512 * 1024
 
 DEFS_URL = "https://luau-lsp.pages.dev/type-definitions/globalTypes.d.luau"
 DEFS_FILENAME = "globalTypes.d.luau"
@@ -244,6 +251,41 @@ def last_error() -> str | None:
     return _last_error
 
 
+# ---------------------------------------------------------------------------
+# Failure log
+# ---------------------------------------------------------------------------
+
+def log_event(message: str) -> None:
+    """Append a timestamped line to the failure log (best-effort).
+
+    Never raises: logging must not break the run it is describing.
+    """
+    try:
+        CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        path = CACHE_DIR / LOG_FILENAME
+        if path.exists() and path.stat().st_size > LOG_MAX_BYTES:
+            # Rotate by truncation: keep the newest half of the cap.
+            data = path.read_bytes()[-LOG_MAX_BYTES // 2:]
+            path.write_bytes(data)
+        stamp = time.strftime("%Y-%m-%dT%H:%M:%S")
+        with open(path, "a", encoding="utf-8", errors="replace") as f:
+            f.write(f"{stamp} {message}\n")
+    except Exception:
+        pass
+
+
+def read_log_tail(max_chars: int = 4000) -> str:
+    """Return the tail of the failure log, or a note if it doesn't exist."""
+    path = CACHE_DIR / LOG_FILENAME
+    if not path.is_file():
+        return "(no luaudit.log found; nothing has failed yet)"
+    try:
+        data = path.read_bytes()[-max_chars:].decode("utf-8", errors="replace")
+        return data
+    except Exception as e:
+        return f"(luaudit.log unreadable: {e})"
+
+
 def ensure_tools() -> None:
     """Download all required tools if not present. Retry on failure."""
     global _ready, _last_error
@@ -261,10 +303,12 @@ def ensure_tools() -> None:
             _download_and_extract_zip(urls["luau-lsp"], BIN_DIR)
         except Exception as e:
             _last_error = f"Failed to download luau-lsp: {e}"
+            log_event(f"ERROR {_last_error}")
             print(f"[luaudit] ERROR: {_last_error}", file=sys.stderr)
             return
         if not luau_lsp_path.exists():
             _last_error = "luau-lsp binary not found after extraction"
+            log_event(f"ERROR {_last_error}")
             print(f"[luaudit] ERROR: {_last_error}", file=sys.stderr)
             return
 
@@ -273,9 +317,11 @@ def ensure_tools() -> None:
         try:
             _download_and_extract_zip(urls["selene"], BIN_DIR)
         except Exception as e:
+            log_event(f"WARNING selene download failed: {e}, linting skipped")
             print(f"[luaudit] WARNING: selene download failed: {e}, linting skipped", file=sys.stderr)
         else:
             if not selene_path.exists():
+                log_event("WARNING selene binary missing after install, linting skipped")
                 print("[luaudit] WARNING: selene binary missing, linting skipped", file=sys.stderr)
 
     stylua_path = BIN_DIR / _exe("stylua")
@@ -283,9 +329,11 @@ def ensure_tools() -> None:
         try:
             _download_and_extract_zip(urls["stylua"], BIN_DIR)
         except Exception as e:
+            log_event(f"WARNING stylua download failed: {e}, formatting skipped")
             print(f"[luaudit] WARNING: stylua download failed: {e}, formatting skipped", file=sys.stderr)
         else:
             if not stylua_path.exists():
+                log_event("WARNING stylua binary missing after install, formatting skipped")
                 print("[luaudit] WARNING: stylua binary missing, formatting skipped", file=sys.stderr)
 
     defs_path = DEFS_DIR / DEFS_FILENAME
@@ -305,6 +353,7 @@ def ensure_tools() -> None:
                 raise RuntimeError("downloaded type definitions are empty")
         except Exception as e:
             _last_error = f"Failed to download type definitions: {e}"
+            log_event(f"ERROR {_last_error}")
             print(f"[luaudit] ERROR: {_last_error}", file=sys.stderr)
             return
 

@@ -97,6 +97,19 @@ reports whether the installed mirror matches your engine build. Remove with
 `%LOCALAPPDATA%\Roblox\Plugins\` (Windows) or `~/Documents/Roblox/Plugins/`
 (macOS) yourself.
 
+## If something breaks
+
+Run:
+
+```
+luaudit doctor --bug-report
+```
+
+and paste the output into a new issue. It collects the luaudit and Python
+versions, platform, installed tool paths, mirror status, and the tail of
+`~/.luaudit/luaudit.log`, where every toolchain download and engine failure
+is recorded. That is everything needed to reproduce and fix a failure.
+
 ## Credit
 
 luaudit depends on the following projects:
