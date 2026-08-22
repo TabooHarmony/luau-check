@@ -17,6 +17,10 @@ own work instead of shipping it to you. Nothing to run by hand.
 
 First check downloads the toolchain into `~/.luaudit`. After that it just works.
 
+Binaries (luau-lsp, selene, stylua) are SHA256-pinned and verified before
+extraction. Type definitions update weekly over HTTPS by design, since they
+track the live Luau language surface.
+
 ## Requirements
 
 - Any Python 3 on PATH. On Windows the hook launcher also checks the

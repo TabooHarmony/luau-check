@@ -254,7 +254,12 @@ def ensure_tools() -> bool:
             return False
 
     selene = BIN_DIR / _exe("selene")
-    if not selene.exists():
+    if _platform() == ("linux", "arm64"):
+        # selene ships no native linux-arm64 binary; the x86_64 build would
+        # fail with "Exec format error" on every check. Skip linting instead
+        # of installing a dead binary.
+        _log_event("WARNING selene has no native linux-arm64 build, linting skipped")
+    elif not selene.exists():
         try:
             _download_and_extract_zip(urls["selene"], BIN_DIR)
         except Exception as e:
@@ -561,7 +566,7 @@ def check_file(filepath: str) -> list[dict]:
     else:
         all_diags.extend(_parse_luau_lsp(stdout, stderr))
 
-    if selene.exists():
+    if selene.exists() and _platform() != ("linux", "arm64"):
         project_selene = _find_config(project_root, ("selene.toml", "selene.yml"))
         cmd = [str(selene), "--display-style", "json", "--no-summary",
                f"--config={project_selene or base_selene}", check_target]

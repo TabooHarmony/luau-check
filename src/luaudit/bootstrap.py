@@ -163,6 +163,16 @@ def _download_and_extract_zip(url: str, dest_dir: Path) -> None:
         if actual != expected:
             raise RuntimeError(f"SHA256 mismatch for {url}: expected {expected}, got {actual}")
         with zipfile.ZipFile(tmp_path) as zf:
+            # Reject zip-slip outright: absolute members, `..` traversal, and
+            # backslash separators (mirrors the plugin engine's guard).
+            for info in zf.infolist():
+                name = info.filename
+                if (
+                    name.startswith(("/", "\\"))
+                    or ".." in Path(name).parts
+                    or "\\" in name
+                ):
+                    raise ValueError(f"unsafe zip member: {name!r}")
             zf.extractall(dest_dir)
         if platform.system() != "Windows":
             for p in dest_dir.iterdir():
@@ -313,7 +323,14 @@ def ensure_tools() -> None:
             return
 
     selene_path = BIN_DIR / _exe("selene")
-    if not selene_path.exists():
+    if _get_platform() == ("linux", "arm64"):
+        # selene ships no native linux-arm64 binary; the x86_64 build would
+        # fail with "Exec format error" on every check and surface as a false
+        # InternalError per file. Skip linting instead of installing a dead
+        # binary.
+        log_event("WARNING selene has no native linux-arm64 build, linting skipped")
+        print("[luaudit] WARNING: selene has no native Linux arm64 build; linting skipped", file=sys.stderr)
+    elif not selene_path.exists():
         try:
             _download_and_extract_zip(urls["selene"], BIN_DIR)
         except Exception as e:
@@ -359,10 +376,6 @@ def ensure_tools() -> None:
 
     _write_configs()
 
-    os_name, arch = _get_platform()
-    if os_name == "linux" and arch == "arm64" and selene_path.exists():
-        print("[luaudit] WARNING: selene has no native Linux arm64 build; linting may not work", file=sys.stderr)
-
     _ready = True
     print("[luaudit] ready", file=sys.stderr)
 
@@ -379,34 +392,12 @@ def get_paths() -> dict[str, Path]:
 
 
 def has_selene() -> bool:
+    # selene has no native linux-arm64 build; never report the x86_64 binary
+    # (if present) as runnable there.
+    if _get_platform() == ("linux", "arm64"):
+        return False
     return (BIN_DIR / _exe("selene")).exists()
 
 
 def has_stylua() -> bool:
     return (BIN_DIR / _exe("stylua")).exists()
-
-
-def install_cli_binary(dest_dir: Path) -> Path | None:
-    """Install the luaudit CLI as a standalone executable.
-
-    Ships a launcher script that re-runs the installed luaudit package.
-    Used by agent adapters so the agent can invoke the tool even when the
-    package isn't on PATH. Returns the launcher path.
-    """
-    dest_dir.mkdir(parents=True, exist_ok=True)
-    launcher = dest_dir / (_exe("luaudit"))
-    if launcher.exists():
-        return launcher
-    # Locate this package's console script if installed (uvx/pipx style)
-    # Fallback: write a launcher that invokes `python -m luaudit.cli`.
-    here = Path(__file__).resolve().parent
-    launcher.write_text(
-        "#!/usr/bin/env python3\n"
-        "import sys\n"
-        f"sys.path.insert(0, {str(here.parent)!r})\n"
-        "from luaudit.cli import main\n"
-        "sys.exit(main())\n",
-        encoding="utf-8",
-    )
-    launcher.chmod(launcher.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
-    return launcher

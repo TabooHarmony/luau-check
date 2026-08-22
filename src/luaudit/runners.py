@@ -102,12 +102,6 @@ def _is_abs_like(p: str) -> bool:
     return os.path.isabs(p) or bool(re.match(r"^[A-Za-z]:[\\/]", p))
 
 
-def _normalize_paths(diagnostics: list[Diagnostic], base_dir: str) -> None:
-    for d in diagnostics:
-        if not _is_abs_like(d.file):
-            d.file = os.path.normpath(os.path.join(base_dir, d.file))
-
-
 # ---------------------------------------------------------------------------
 # Runners
 # ---------------------------------------------------------------------------
@@ -334,7 +328,7 @@ def check_code(code: str, filename: str = "snippet.luau") -> dict:
     """Type-check a code string by writing a temp file and running checks."""
     if not bootstrap.is_ready():
         return {"error": bootstrap.last_error() or "setup incomplete"}
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".luau", prefix="luau_lens_",
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".luau", prefix="luaudit_",
                                      delete=False, encoding="utf-8") as tmp:
         tmp.write(code)
         tmp_path = tmp.name

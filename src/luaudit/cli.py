@@ -79,7 +79,6 @@ def _cmd_format(args: argparse.Namespace) -> int:
 
 
 def _cmd_init(args: argparse.Namespace) -> int:
-    bootstrap.ensure_tools()
     wrote = bootstrap.init_configs(Path(args.dir))
     if wrote:
         print(f"wrote configs to {args.dir}")
@@ -189,7 +188,9 @@ def main(argv: list[str] | None = None) -> int:
     p_fmt.add_argument("paths", nargs="+")
     p_fmt.add_argument("--cwd", default=".")
 
-    sub.add_parser("init", help="write default selene.toml and .luaurc")
+    p_init = sub.add_parser("init", help="write default selene.toml and .luaurc")
+    p_init.add_argument("dir", nargs="?", default=".",
+                        help="project directory to write configs into (default: cwd)")
     p_sm = sub.add_parser("sourcemap",
                           help="generate a sourcemap.json for a Script Sync / plain directory tree")
     p_sm.add_argument("dir", nargs="?", default=".",
