@@ -84,7 +84,7 @@ def test_has_selene_false_on_linux_arm64(monkeypatch, tmp_path: Path):
     than let an x86_64 binary produce 'Exec format error' per file."""
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
-    (bin_dir / "selene").write_text("#!/bin/sh\n")
+    (bin_dir / bootstrap._exe("selene")).write_text("#!/bin/sh\n")
     monkeypatch.setattr(bootstrap, "BIN_DIR", bin_dir)
 
     monkeypatch.setattr(bootstrap, "_get_platform", lambda: ("linux", "arm64"))
