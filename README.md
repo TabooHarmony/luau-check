@@ -5,7 +5,6 @@
 
   [![CI](https://github.com/TabooHarmony/luaudit/actions/workflows/ci.yml/badge.svg)](https://github.com/TabooHarmony/luaudit/actions/workflows/ci.yml)
   [![Release](https://img.shields.io/github/v/release/TabooHarmony/luaudit)](https://github.com/TabooHarmony/luaudit/releases/latest)
-  [![Downloads](https://img.shields.io/github/downloads/TabooHarmony/luaudit/total)](https://github.com/TabooHarmony/luaudit/releases)
   [![License](https://img.shields.io/github/license/TabooHarmony/luaudit)](LICENSE)
 </div>
 
